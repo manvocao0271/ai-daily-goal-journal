@@ -11,10 +11,28 @@
 <body>
     <h1>days since August 4, 2025, 12:06am</h1>
     <div id="timer">Loading...</div>
-    <div id="journal-box">
-        <h2>Daily Journal</h2>
-        <div id="journal-entries" style="max-width:500px;margin:0 auto;text-align:left;background:#f9f9f9;border:1px solid #ccc;padding:16px;border-radius:8px;min-height:100px;overflow-y:auto;"></div>
+
+    <div id="auth-box" style="max-width:400px;margin:30px auto;padding:20px;border:1px solid #ccc;border-radius:8px;background:#f9f9f9;">
+        <h2>Login / Register</h2>
+        <form id="login-form">
+            <input type="text" id="username" placeholder="Username" required style="width:90%;margin-bottom:8px;"><br>
+            <input type="password" id="password" placeholder="Password" required style="width:90%;margin-bottom:8px;"><br>
+            <button type="submit">Login</button>
+            <button type="button" id="register-btn">Register</button>
+        </form>
+        <div id="auth-msg" style="color:red;margin-top:8px;"></div>
     </div>
+
+    <div id="journal-box" style="display:none;max-width:500px;margin:0 auto;text-align:left;background:#f9f9f9;border:1px solid #ccc;padding:16px;border-radius:8px;min-height:100px;overflow-y:auto;">
+        <h2>Daily Journal</h2>
+        <div id="journal-entries"></div>
+        <form id="new-journal-form" style="margin-top:16px;">
+            <textarea id="journal-text" rows="3" style="width:100%;" placeholder="Write your journal entry..."></textarea><br>
+            <button type="submit">Add Entry</button>
+        </form>
+        <button id="logout-btn" style="margin-top:12px;">Logout</button>
+    </div>
+
     <script>
         let startDate;
         fetch('/api/start-date')
@@ -36,23 +54,108 @@
             document.getElementById('timer').textContent = `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
         }
 
-        // Fetch and display journal entries
-        function loadJournal() {
-            fetch('/api/journal')
-                .then(res => res.json())
-                .then(data => {
-                    const entries = data.entries || [];
-                    const container = document.getElementById('journal-entries');
-                    if (entries.length === 0) {
-                        container.innerHTML = '<em>No journal entries yet.</em>';
-                        return;
-                    }
-                    container.innerHTML = entries.map(entry =>
-                        `<div style="margin-bottom:12px;"><strong>${entry.date}</strong><br>${entry.text}</div>`
-                    ).join('');
-                });
+        // Auth logic
+        function setUser(user_id) {
+            localStorage.setItem('user_id', user_id);
         }
-        loadJournal();
+        function getUser() {
+            return localStorage.getItem('user_id');
+        }
+        function clearUser() {
+            localStorage.removeItem('user_id');
+        }
+
+        function showJournal() {
+            document.getElementById('auth-box').style.display = 'none';
+            document.getElementById('journal-box').style.display = '';
+        }
+        function showAuth() {
+            document.getElementById('auth-box').style.display = '';
+            document.getElementById('journal-box').style.display = 'none';
+        }
+
+        async function loadJournal() {
+            const user_id = getUser();
+            if (!user_id) return;
+            const res = await fetch(`/api/journal/${user_id}`);
+            const data = await res.json();
+            const entries = data.entries || [];
+            const container = document.getElementById('journal-entries');
+            if (entries.length === 0) {
+                container.innerHTML = '<em>No journal entries yet.</em>';
+                return;
+            }
+            container.innerHTML = entries.map(entry =>
+                `<div style="margin-bottom:12px;"><strong>${entry.date}</strong><br>${entry.text}</div>`
+            ).join('');
+        }
+
+        // Login/Register form logic
+        document.getElementById('login-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setUser(data.user_id);
+                showJournal();
+                loadJournal();
+            } else {
+                document.getElementById('auth-msg').textContent = data.detail || 'Login failed.';
+            }
+        };
+        document.getElementById('register-btn').onclick = async function() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const res = await fetch('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setUser(data.user_id);
+                showJournal();
+                loadJournal();
+            } else {
+                document.getElementById('auth-msg').textContent = data.detail || 'Registration failed.';
+            }
+        };
+
+        // New journal entry form logic
+        document.getElementById('new-journal-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const user_id = getUser();
+            const text = document.getElementById('journal-text').value;
+            const date = new Date().toLocaleDateString('en-US');
+            if (!text) return;
+            const res = await fetch('/api/journal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id, text, date })
+            });
+            document.getElementById('journal-text').value = '';
+            loadJournal();
+        };
+
+        // Logout button logic
+        document.getElementById('logout-btn').onclick = function() {
+            clearUser();
+            showAuth();
+        };
+
+        // On page load, show correct view
+        if (getUser()) {
+            showJournal();
+            loadJournal();
+        } else {
+            showAuth();
+        }
     </script>
 </body>
 </html>

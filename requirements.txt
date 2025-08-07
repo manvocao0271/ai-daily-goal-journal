@@ -1,3 +1,5 @@
+# This file is used to install the necessary packages for the FastAPI application.
 fastapi
 uvicorn
-# This file is used to install the necessary packages for the FastAPI application.
+motor
+passlib[bcrypt]
