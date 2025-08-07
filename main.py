@@ -25,7 +25,7 @@ def get_journal():
                 line = line.strip()
                 if line:
                     today = datetime.now().date()
-                    entry_date = (today + timedelta(days=idx)).strftime("%m/%d/%Y")
+                    entry_date = (today + timedelta(days=idx-1)).strftime("%m/%d/%Y")
                     entries.append({"date": entry_date, "text": line})
     return JSONResponse({"entries": entries})
 
