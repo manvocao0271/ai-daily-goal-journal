@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from typing import List
 
@@ -21,13 +21,11 @@ def get_journal():
     entries: List[dict] = []
     if os.path.exists(journal_path):
         with open(journal_path, "r", encoding="utf-8") as f:
-            for line in f:
+            for idx, line in enumerate(f):
                 line = line.strip()
                 if line:
-                    # Expect format: MM/DD/YYYY: entry text
-                    if ":" in line:
-                        date, text = line.split(":", 1)
-                        entries.append({"date": date.strip(), "text": text.strip()})
+                    entry_date = (START_DATE + timedelta(days=idx)).strftime("%m/%d/%Y")
+                    entries.append({"date": entry_date, "text": line})
     return JSONResponse({"entries": entries})
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
