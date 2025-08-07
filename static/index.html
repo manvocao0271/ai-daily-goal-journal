@@ -11,6 +11,10 @@
 <body>
     <h1>days since August 4, 2025, 12:06am</h1>
     <div id="timer">Loading...</div>
+    <div id="journal-box">
+        <h2>Daily Journal</h2>
+        <div id="journal-entries" style="max-width:500px;margin:0 auto;text-align:left;background:#f9f9f9;border:1px solid #ccc;padding:16px;border-radius:8px;min-height:100px;overflow-y:auto;"></div>
+    </div>
     <script>
         let startDate;
         fetch('/api/start-date')
@@ -31,6 +35,24 @@
             const seconds = delta - minutes * 60;
             document.getElementById('timer').textContent = `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
         }
+
+        // Fetch and display journal entries
+        function loadJournal() {
+            fetch('/api/journal')
+                .then(res => res.json())
+                .then(data => {
+                    const entries = data.entries || [];
+                    const container = document.getElementById('journal-entries');
+                    if (entries.length === 0) {
+                        container.innerHTML = '<em>No journal entries yet.</em>';
+                        return;
+                    }
+                    container.innerHTML = entries.map(entry =>
+                        `<div style="margin-bottom:12px;"><strong>${entry.date}</strong><br>${entry.text}</div>`
+                    ).join('');
+                });
+        }
+        loadJournal();
     </script>
 </body>
 </html>
