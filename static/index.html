@@ -24,12 +24,17 @@
     </div>
 
     <div id="journal-box" style="display:none;max-width:500px;margin:0 auto;text-align:left;background:#f9f9f9;border:1px solid #ccc;padding:16px;border-radius:8px;min-height:100px;overflow-y:auto;">
-        <h2>Daily Journal</h2>
-        <div id="journal-entries"></div>
-        <form id="new-journal-form" style="margin-top:16px;">
-            <textarea id="journal-text" rows="3" style="width:100%;" placeholder="Write your journal entry..."></textarea><br>
-            <button type="submit">Add Entry</button>
-        </form>
+        <h2>Your Journals</h2>
+        <div id="journal-list"></div>
+        <button id="create-journal-btn" style="margin:16px 0 8px 0;width:100%;">Create New Journal</button>
+        <div id="journal-detail" style="display:none;margin-top:16px;">
+            <h3 id="journal-title"></h3>
+            <div id="journal-entries"></div>
+            <form id="new-journal-form" style="margin-top:16px;">
+                <textarea id="journal-text" rows="3" style="width:100%;" placeholder="Write your journal entry..."></textarea><br>
+                <button type="submit">Add Entry</button>
+            </form>
+        </div>
         <button id="logout-btn" style="margin-top:12px;">Logout</button>
     </div>
 
@@ -74,21 +79,78 @@
             document.getElementById('journal-box').style.display = 'none';
         }
 
-        async function loadJournal() {
+        // Load journals for user
+        async function loadJournals() {
             const user_id = getUser();
             if (!user_id) return;
             const res = await fetch(`/api/journal/${user_id}`);
             const data = await res.json();
-            const entries = data.entries || [];
-            const container = document.getElementById('journal-entries');
-            if (entries.length === 0) {
-                container.innerHTML = '<em>No journal entries yet.</em>';
+            const journals = data.entries || [];
+            const list = document.getElementById('journal-list');
+            if (journals.length === 0) {
+                list.innerHTML = '<em>No journals yet.</em>';
+                document.getElementById('journal-detail').style.display = 'none';
                 return;
             }
-            container.innerHTML = entries.map(entry =>
-                `<div style="margin-bottom:12px;"><strong>${entry.date}</strong><br>${entry.text}</div>`
+            list.innerHTML = journals.map(journal =>
+                `<div class="journal-item" style="padding:8px 0;border-bottom:1px solid #eee;cursor:pointer;" data-id="${journal._id}">
+                    <strong>${journal.name || journal.date}</strong>
+                </div>`
             ).join('');
+            // Add click listeners
+            Array.from(document.getElementsByClassName('journal-item')).forEach(item => {
+                item.onclick = function() {
+                    showJournalDetail(item.getAttribute('data-id'));
+                };
+            });
         }
+
+        // Show journal detail
+        function showJournalDetail(journalId) {
+            const user_id = getUser();
+            fetch(`/api/journal/${user_id}`)
+                .then(res => res.json())
+                .then(data => {
+                    const journals = data.entries || [];
+                    const journal = journals.find(j => j._id === journalId);
+                    if (!journal) return;
+                    document.getElementById('journal-title').textContent = journal.name || journal.date;
+                    document.getElementById('journal-detail').style.display = '';
+                    // Show entries for this journal (for now, just one entry per journal)
+                    document.getElementById('journal-entries').innerHTML = `<div style="margin-bottom:12px;"><strong>${journal.date}</strong><br>${journal.text}</div>`;
+                });
+        }
+
+        // Create new journal
+        document.getElementById('create-journal-btn').onclick = async function() {
+            const user_id = getUser();
+            const name = prompt('Enter journal name:');
+            if (!name) return;
+            const date = new Date().toLocaleDateString('en-US');
+            const res = await fetch('/api/journal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id, text: '', date, name })
+            });
+            loadJournals();
+        };
+
+        // Add entry to journal (for now, updates the text field)
+        document.getElementById('new-journal-form').onsubmit = async function(e) {
+            e.preventDefault();
+            const user_id = getUser();
+            const text = document.getElementById('journal-text').value;
+            const journalId = document.querySelector('.journal-item.selected')?.getAttribute('data-id');
+            if (!text || !journalId) return;
+            // For now, update the journal's text
+            await fetch(`/api/journal/${journalId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            document.getElementById('journal-text').value = '';
+            showJournalDetail(journalId);
+        };
 
         // Login/Register form logic
         document.getElementById('login-form').onsubmit = async function(e) {
@@ -152,7 +214,7 @@
         // On page load, show correct view
         if (getUser()) {
             showJournal();
-            loadJournal();
+            loadJournals();
         } else {
             showAuth();
         }

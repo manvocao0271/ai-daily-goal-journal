@@ -1,1 +1,2 @@
 deployed this project after 22 hours of straight applications.
+applied to a bunch of swe, ai/ml internships. emotionally doing better. worked on this personal project to ensure user persistent data across render web host restarts. added user registration and login credentials with MongoDB Atlas. 

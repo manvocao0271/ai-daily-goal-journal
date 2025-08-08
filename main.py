@@ -79,18 +79,35 @@ db = client["journal_app"]  # You can name your database
 users_collection = db["users"]  # Collection for users
 journals_collection = db["journals"]  # Collection for journal entries
 
-# Endpoint to add a journal entry for a user
+# Endpoint to add a journal (with optional name)
 @app.post("/api/journal")
 async def add_journal_entry(data: dict = Body(...)):
     user_id = data.get("user_id")
-    text = data.get("text")
+    text = data.get("text", "")
     date = data.get("date")
-    if not user_id or not text or not date:
-        raise HTTPException(status_code=400, detail="user_id, text, and date required.")
+    name = data.get("name", None)
+    if not user_id or not date:
+        raise HTTPException(status_code=400, detail="user_id and date required.")
     entry = {"user_id": user_id, "date": date, "text": text}
+    if name:
+        entry["name"] = name
     result = await journals_collection.insert_one(entry)
-    return {"msg": "Entry added.", "entry_id": str(result.inserted_id)}
+    return {"msg": "Journal created.", "entry_id": str(result.inserted_id)}
 
+# Endpoint to update journal text or name
+@app.put("/api/journal/{journal_id}")
+async def update_journal(journal_id: str, data: dict = Body(...)):
+    update_fields = {}
+    if "text" in data:
+        update_fields["text"] = data["text"]
+    if "name" in data:
+        update_fields["name"] = data["name"]
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update.")
+    result = await journals_collection.update_one({"_id": journal_id}, {"$set": update_fields})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Journal not found.")
+    return {"msg": "Journal updated."}
 # Endpoint to get all journal entries for a user
 @app.get("/api/journal/{user_id}")
 async def get_user_journal(user_id: str):
