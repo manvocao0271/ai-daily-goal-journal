@@ -27,6 +27,17 @@
         <h2>Your Journals</h2>
         <div id="journal-list"></div>
         <button id="create-journal-btn" style="margin:16px 0 8px 0;width:100%;">Create New Journal</button>
+        <!-- Modal for creating a new journal -->
+        <div id="create-journal-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.3);align-items:center;justify-content:center;z-index:1000;">
+            <div style="background:#fff;padding:24px;border-radius:8px;min-width:300px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+                <h3>Create New Journal</h3>
+                <form id="create-journal-form">
+                    <label>Journal Name:<br><input type="text" id="new-journal-name" style="width:100%;"></label><br><br>
+                    <button type="submit">Create</button>
+                    <button type="button" id="cancel-create-journal">Cancel</button>
+                </form>
+            </div>
+        </div>
         <div id="journal-detail" style="display:none;margin-top:16px;">
             <h3 id="journal-title"></h3>
             <div id="journal-entries"></div>
@@ -122,16 +133,30 @@
         }
 
         // Create new journal
-        document.getElementById('create-journal-btn').onclick = async function() {
+        // Show modal for creating a new journal
+        document.getElementById('create-journal-btn').onclick = function() {
+            document.getElementById('create-journal-modal').style.display = 'flex';
+        };
+
+        // Hide modal
+        document.getElementById('cancel-create-journal').onclick = function() {
+            document.getElementById('create-journal-modal').style.display = 'none';
+        };
+
+        // Handle journal creation
+        document.getElementById('create-journal-form').onsubmit = async function(e) {
+            e.preventDefault();
             const user_id = getUser();
-            const name = prompt('Enter journal name:');
+            const name = document.getElementById('new-journal-name').value.trim();
             if (!name) return;
             const date = new Date().toLocaleDateString('en-US');
-            const res = await fetch('/api/journal', {
+            await fetch('/api/journal', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id, text: '', date, name })
             });
+            document.getElementById('new-journal-name').value = '';
+            document.getElementById('create-journal-modal').style.display = 'none';
             loadJournals();
         };
 
