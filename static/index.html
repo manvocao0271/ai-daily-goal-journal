@@ -64,15 +64,53 @@
         }
 
         // Auth logic
-        function setUser(user_id) {
-            localStorage.setItem('user_id', user_id);
-        }
-        function getUser() {
-            return localStorage.getItem('user_id');
-        }
-        function clearUser() {
-            localStorage.removeItem('user_id');
-        }
+        function setUser(user_id) { localStorage.setItem('user_id', user_id); }
+        function getUser() { return localStorage.getItem('user_id'); }
+        function clearUser() { localStorage.removeItem('user_id'); }
+
+        // Login and Register handlers
+        const authMsg = document.getElementById('auth-msg');
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authMsg.textContent = '';
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            if (!username || !password) { authMsg.textContent = 'Enter username and password.'; return; }
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (!res.ok) { authMsg.textContent = data.detail || 'Login failed.'; return; }
+                setUser(data.user_id);
+                document.getElementById('login-form').reset();
+                showJournal();
+                await loadJournals();
+            } catch (err) {
+                authMsg.textContent = 'Network error. Try again.';
+            }
+        });
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            authMsg.textContent = '';
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            if (!username || !password) { authMsg.textContent = 'Enter username and password.'; return; }
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (!res.ok) { authMsg.textContent = data.detail || 'Registration failed.'; return; }
+                setUser(data.user_id);
+                document.getElementById('login-form').reset();
+                showJournal();
+                await loadJournals();
+            } catch (err) {
+                authMsg.textContent = 'Network error. Try again.';
+            }
+        });
 
         function showJournal() {
             document.getElementById('auth-box').style.display = 'none';
@@ -117,20 +155,13 @@
             }).join('');
         }
 
-        // Show journal detail function removed from list page
-
         // Create new journal
-        // Show modal for creating a new journal
         document.getElementById('create-journal-btn').onclick = function() {
             document.getElementById('create-journal-modal').style.display = 'flex';
         };
-
-        // Hide modal
         document.getElementById('cancel-create-journal').onclick = function() {
             document.getElementById('create-journal-modal').style.display = 'none';
         };
-
-        // Handle journal creation
         document.getElementById('create-journal-form').onsubmit = async function(e) {
             e.preventDefault();
             const user_id = getUser();
@@ -147,8 +178,6 @@
             loadJournals();
         };
 
-        // Entry form removed from journal list page
-
         // New journal entry form logic (guarded because this page doesn't have that form)
         const newJournalForm = document.getElementById('new-journal-form');
         if (newJournalForm) {
@@ -164,16 +193,15 @@
                     body: JSON.stringify({ user_id, text, date })
                 });
                 document.getElementById('journal-text').value = '';
-                // Refresh list view if present
-                if (typeof loadJournals === 'function') {
-                    loadJournals();
-                }
+                if (typeof loadJournals === 'function') { loadJournals(); }
             };
         }
 
         // Logout button logic
         document.getElementById('logout-btn').onclick = async function() {
             clearUser();
+            document.getElementById('login-form').reset();
+            authMsg.textContent = '';
             showAuth();
         };
 
