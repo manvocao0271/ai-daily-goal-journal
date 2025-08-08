@@ -77,10 +77,14 @@
         function showJournal() {
             document.getElementById('auth-box').style.display = 'none';
             document.getElementById('journal-box').style.display = '';
+            document.getElementById('journal-list').innerHTML = '';
+            document.getElementById('create-journal-modal').style.display = 'none';
         }
         function showAuth() {
             document.getElementById('auth-box').style.display = '';
             document.getElementById('journal-box').style.display = 'none';
+            document.getElementById('journal-list').innerHTML = '';
+            document.getElementById('create-journal-modal').style.display = 'none';
         }
 
         // Load journals for user
@@ -159,7 +163,7 @@
             if (res.ok) {
                 setUser(data.user_id);
                 showJournal();
-                loadJournal();
+                await loadJournals();
             } else {
                 document.getElementById('auth-msg').textContent = data.detail || 'Login failed.';
             }
@@ -176,7 +180,7 @@
             if (res.ok) {
                 setUser(data.user_id);
                 showJournal();
-                loadJournal();
+                await loadJournals();
             } else {
                 document.getElementById('auth-msg').textContent = data.detail || 'Registration failed.';
             }
@@ -199,18 +203,21 @@
         };
 
         // Logout button logic
-        document.getElementById('logout-btn').onclick = function() {
+        document.getElementById('logout-btn').onclick = async function() {
             clearUser();
             showAuth();
         };
 
         // On page load, show correct view
-        if (getUser()) {
-            showJournal();
-            loadJournals();
-        } else {
-            showAuth();
+        async function showInitialView() {
+            if (getUser()) {
+                showJournal();
+                await loadJournals();
+            } else {
+                showAuth();
+            }
         }
+        showInitialView();
     </script>
 </body>
 </html>
