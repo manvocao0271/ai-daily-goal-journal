@@ -38,14 +38,7 @@
                 </form>
             </div>
         </div>
-        <div id="journal-detail" style="display:none;margin-top:16px;">
-            <h3 id="journal-title"></h3>
-            <div id="journal-entries"></div>
-            <form id="new-journal-form" style="margin-top:16px;">
-                <textarea id="journal-text" rows="3" style="width:100%;" placeholder="Write your journal entry..."></textarea><br>
-                <button type="submit">Add Entry</button>
-            </form>
-        </div>
+        <!-- Journal detail removed from list page -->
         <button id="logout-btn" style="margin-top:12px;">Logout</button>
     </div>
 
@@ -96,41 +89,31 @@
             if (!user_id) return;
             const res = await fetch(`/api/journal/${user_id}`);
             const data = await res.json();
-            const journals = data.entries || [];
+            let journals = data.entries || [];
+            // Sort by most recently created (assuming _id is ObjectId, which sorts by creation time)
+            journals = journals.sort((a, b) => b._id.localeCompare(a._id));
             const list = document.getElementById('journal-list');
             if (journals.length === 0) {
                 list.innerHTML = '<em>No journals yet.</em>';
-                document.getElementById('journal-detail').style.display = 'none';
                 return;
             }
-            list.innerHTML = journals.map(journal =>
-                `<div class="journal-item" style="padding:8px 0;border-bottom:1px solid #eee;cursor:pointer;" data-id="${journal._id}">
+            list.innerHTML = journals.map(journal => {
+                // Show name and creation time (date + time)
+                let created = journal.date;
+                if (journal._id && journal._id.length === 24) {
+                    // Extract timestamp from ObjectId
+                    const ts = parseInt(journal._id.substring(0,8), 16) * 1000;
+                    const d = new Date(ts);
+                    created = d.toLocaleString();
+                }
+                return `<div class="journal-item" style="padding:8px 0;border-bottom:1px solid #eee;cursor:pointer;" data-id="${journal._id}">
                     <strong>${journal.name || journal.date}</strong>
-                </div>`
-            ).join('');
-            // Add click listeners
-            Array.from(document.getElementsByClassName('journal-item')).forEach(item => {
-                item.onclick = function() {
-                    showJournalDetail(item.getAttribute('data-id'));
-                };
-            });
+                    <span style="float:right;color:#888;font-size:0.95em;">${created}</span>
+                </div>`;
+            }).join('');
         }
 
-        // Show journal detail
-        function showJournalDetail(journalId) {
-            const user_id = getUser();
-            fetch(`/api/journal/${user_id}`)
-                .then(res => res.json())
-                .then(data => {
-                    const journals = data.entries || [];
-                    const journal = journals.find(j => j._id === journalId);
-                    if (!journal) return;
-                    document.getElementById('journal-title').textContent = journal.name || journal.date;
-                    document.getElementById('journal-detail').style.display = '';
-                    // Show entries for this journal (for now, just one entry per journal)
-                    document.getElementById('journal-entries').innerHTML = `<div style="margin-bottom:12px;"><strong>${journal.date}</strong><br>${journal.text}</div>`;
-                });
-        }
+        // Show journal detail function removed from list page
 
         // Create new journal
         // Show modal for creating a new journal
@@ -160,22 +143,7 @@
             loadJournals();
         };
 
-        // Add entry to journal (for now, updates the text field)
-        document.getElementById('new-journal-form').onsubmit = async function(e) {
-            e.preventDefault();
-            const user_id = getUser();
-            const text = document.getElementById('journal-text').value;
-            const journalId = document.querySelector('.journal-item.selected')?.getAttribute('data-id');
-            if (!text || !journalId) return;
-            // For now, update the journal's text
-            await fetch(`/api/journal/${journalId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text })
-            });
-            document.getElementById('journal-text').value = '';
-            showJournalDetail(journalId);
-        };
+        // Entry form removed from journal list page
 
         // Login/Register form logic
         document.getElementById('login-form').onsubmit = async function(e) {
