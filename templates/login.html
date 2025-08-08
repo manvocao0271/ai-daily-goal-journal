@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card" style="max-width:420px;margin:40px auto;">
+  <h2>Login / Register</h2>
+  <form id="login-form">
+    <input class="input" type="text" id="username" placeholder="Username" required style="margin-bottom:8px;" />
+    <input class="input" type="password" id="password" placeholder="Password" required style="margin-bottom:8px;" />
+    <div style="display:flex; gap:8px;">
+      <button class="btn primary" type="submit">Login</button>
+      <button class="btn" type="button" id="register-btn">Register</button>
+    </div>
+  </form>
+  <div id="auth-msg" style="color:#c00;margin-top:8px;"></div>
+</div>
+<script>
+  const authMsg = document.getElementById('auth-msg');
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    authMsg.textContent = '';
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) { authMsg.textContent = 'Enter username and password.'; return; }
+    try {
+      const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+      const data = await res.json();
+      if (!res.ok) { authMsg.textContent = data.detail || 'Login failed.'; return; }
+      window.location.href = '/journals';
+    } catch (e) { authMsg.textContent = 'Network error. Try again.'; }
+  });
+  document.getElementById('register-btn').addEventListener('click', async () => {
+    authMsg.textContent = '';
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) { authMsg.textContent = 'Enter username and password.'; return; }
+    try {
+      const res = await fetch('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username, password }) });
+      const data = await res.json();
+      if (!res.ok) { authMsg.textContent = data.detail || 'Registration failed.'; return; }
+      window.location.href = '/journals';
+    } catch (e) { authMsg.textContent = 'Network error. Try again.'; }
+  });
+</script>
+{% endblock %}
