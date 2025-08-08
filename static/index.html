@@ -149,58 +149,27 @@
 
         // Entry form removed from journal list page
 
-        // Login/Register form logic
-        document.getElementById('login-form').onsubmit = async function(e) {
-            e.preventDefault();
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setUser(data.user_id);
-                showJournal();
-                await loadJournals();
-            } else {
-                document.getElementById('auth-msg').textContent = data.detail || 'Login failed.';
-            }
-        };
-        document.getElementById('register-btn').onclick = async function() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const res = await fetch('/api/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setUser(data.user_id);
-                showJournal();
-                await loadJournals();
-            } else {
-                document.getElementById('auth-msg').textContent = data.detail || 'Registration failed.';
-            }
-        };
-
-        // New journal entry form logic
-        document.getElementById('new-journal-form').onsubmit = async function(e) {
-            e.preventDefault();
-            const user_id = getUser();
-            const text = document.getElementById('journal-text').value;
-            const date = new Date().toLocaleDateString('en-US');
-            if (!text) return;
-            const res = await fetch('/api/journal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id, text, date })
-            });
-            document.getElementById('journal-text').value = '';
-            loadJournal();
-        };
+        // New journal entry form logic (guarded because this page doesn't have that form)
+        const newJournalForm = document.getElementById('new-journal-form');
+        if (newJournalForm) {
+            newJournalForm.onsubmit = async function(e) {
+                e.preventDefault();
+                const user_id = getUser();
+                const text = document.getElementById('journal-text').value;
+                const date = new Date().toLocaleDateString('en-US');
+                if (!text) return;
+                await fetch('/api/journal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id, text, date })
+                });
+                document.getElementById('journal-text').value = '';
+                // Refresh list view if present
+                if (typeof loadJournals === 'function') {
+                    loadJournals();
+                }
+            };
+        }
 
         // Logout button logic
         document.getElementById('logout-btn').onclick = async function() {
