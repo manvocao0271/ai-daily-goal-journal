@@ -6,6 +6,7 @@ from fastapi import HTTPException, status, Depends, Body
 import os
 from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId  # add near top with other imports
 
 app = FastAPI()
 
@@ -84,7 +85,11 @@ async def journal_detail_page(journal_id: str, request: Request):
     user_id = request.cookies.get("user_id")
     if not user_id:
         return RedirectResponse(url="/login")
-    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        return RedirectResponse(url="/journals")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
     if not journal:
         return RedirectResponse(url="/journals")
     return templates.TemplateResponse("journal.html", {"request": request, "title": journal.get("name") or "Journal", "journal_id": journal_id, "user_id": user_id, "name": journal.get("name"), "goal": journal.get("goal")})
@@ -193,8 +198,11 @@ async def create_entry(journal_id: str, request: Request, data: dict = Body(...)
     user_id = request.cookies.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    # verify ownership
-    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
     text = data.get("text", "").strip()
@@ -209,11 +217,14 @@ async def create_entry(journal_id: str, request: Request, data: dict = Body(...)
 
 @app.get("/api/journal/{user_id}/{journal_id}/entries")
 async def list_entries(user_id: str, journal_id: str, request: Request):
-    # ensure requester matches user_id via cookie to prevent enumeration
     cookie_uid = request.cookies.get("user_id")
     if cookie_uid != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
     entries = []
@@ -230,7 +241,11 @@ async def update_entry(entry_id: str, data: dict = Body(...), request: Request =
     text = data.get("text", "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text required")
-    result = await entries_collection.update_one({"_id": entry_id, "user_id": user_id}, {"$set": {"text": text}})
+    try:
+        eid = ObjectId(entry_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid entry id")
+    result = await entries_collection.update_one({"_id": eid, "user_id": user_id}, {"$set": {"text": text}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"msg": "Entry updated"}
@@ -240,7 +255,11 @@ async def delete_entry(entry_id: str, request: Request):
     user_id = request.cookies.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    result = await entries_collection.delete_one({"_id": entry_id, "user_id": user_id})
+    try:
+        eid = ObjectId(entry_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid entry id")
+    result = await entries_collection.delete_one({"_id": eid, "user_id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"msg": "Entry deleted"}
