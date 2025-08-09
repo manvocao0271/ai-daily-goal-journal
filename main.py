@@ -18,6 +18,10 @@ from fastapi.responses import RedirectResponse
 
 # Templates for MPA
 templates = Jinja2Templates(directory="templates")
+# Dev convenience: auto reload templates when DEBUG=1
+if os.getenv("DEBUG", "0") == "1":
+    templates.env.auto_reload = True
+    templates.env.cache = {}  # disable template caching
 
 @app.get("/api/start-date")
 def get_start_date():
@@ -125,11 +129,14 @@ async def add_journal_entry(request: Request, data: dict = Body(...)):
     text = data.get("text", "")
     date = data.get("date")
     name = data.get("name", None)
+    goal = data.get("goal")  # new field
     if not user_id or not date:
         raise HTTPException(status_code=400, detail="user_id and date required.")
     entry = {"user_id": user_id, "date": date, "text": text}
     if name:
         entry["name"] = name
+    if goal:
+        entry["goal"] = goal
     result = await journals_collection.insert_one(entry)
     return {"msg": "Journal created.", "entry_id": str(result.inserted_id)}
 

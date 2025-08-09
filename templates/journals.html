@@ -12,17 +12,21 @@
 </div>
 <!-- Modal -->
 <div id="create-journal-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.3);align-items:center;justify-content:center;z-index:1000;">
-  <div style="background:#fff;padding:24px;border-radius:8px;min-width:300px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+  <div style="background:#fff;padding:24px;border-radius:8px;min-width:340px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
     <h3>Create New Journal</h3>
     <form id="create-journal-form">
-      <label>Journal Name:<br><input type="text" id="new-journal-name" class="input"></label><br><br>
-      <button type="submit" class="btn primary">Create</button>
-      <button type="button" id="cancel-create-journal" class="btn">Cancel</button>
+      <label style="display:block;margin-bottom:12px;">Journal Name:<br><input type="text" id="new-journal-name" class="input" placeholder="e.g. Fitness Progress"></label>
+      <label style="display:block;margin-bottom:12px;">Goal / Purpose:<br><textarea id="new-journal-goal" class="input" rows="3" placeholder="Describe the purpose of this journal..."></textarea></label>
+      <div style="display:flex;gap:8px;">
+        <button type="submit" class="btn primary">Create</button>
+        <button type="button" id="cancel-create-journal" class="btn">Cancel</button>
+      </div>
     </form>
   </div>
 </div>
 <script>
   const USER_ID = '{{ user_id }}';
+  function esc(str){return (str||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
   async function loadJournals() {
     const list = document.getElementById('journal-list');
     list.innerHTML = 'Loading...';
@@ -38,9 +42,11 @@
         const ts = parseInt(j._id.substring(0,8), 16) * 1000;
         created = new Date(ts).toLocaleString();
       }
-      return `<div class="journal-item" style="padding:8px 0;border-bottom:1px solid #eee;">
-        <strong>${j.name || j.date}</strong>
-        <span style="float:right;color:#888;font-size:0.95em;">${created}</span>
+      const goalShort = j.goal ? esc(j.goal.length > 70 ? j.goal.slice(0,67) + '…' : j.goal) : '';
+      return `<div class="journal-item" style="padding:10px 0;border-bottom:1px solid #eee;">
+        <strong>${esc(j.name) || created}</strong>
+        <span style="float:right;color:#888;font-size:0.85em;">${created}</span>
+        ${goalShort ? `<div style=\"margin-top:4px;color:#555;font-size:0.85em;\">${goalShort}</div>`: ''}
       </div>`;
     }).join('');
   }
@@ -53,10 +59,12 @@
   document.getElementById('create-journal-form').onsubmit = async (e) => {
     e.preventDefault();
     const name = document.getElementById('new-journal-name').value.trim();
+    const goal = document.getElementById('new-journal-goal').value.trim();
     if (!name) return;
     const date = new Date().toLocaleDateString('en-US');
-    await fetch('/api/journal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: USER_ID, text: '', date, name }) });
+    await fetch('/api/journal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: USER_ID, text: '', date, name, goal }) });
     document.getElementById('new-journal-name').value = '';
+    document.getElementById('new-journal-goal').value = '';
     document.getElementById('create-journal-modal').style.display = 'none';
     loadJournals();
   };
