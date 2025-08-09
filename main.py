@@ -57,6 +57,8 @@ client = AsyncIOMotorClient(MONGO_URI) if MONGO_URI else AsyncIOMotorClient()
 db = client["journal_app"]  # You can name your database
 users_collection = db["users"]  # Collection for users
 journals_collection = db["journals"]  # Collection for journal entries
+# Entries collection (same collection or separate). We'll store entries in a separate collection.
+entries_collection = db["journal_entries"]
 
 # -------- AUTH PAGES (MPA) --------
 @app.get("/")
@@ -76,6 +78,16 @@ async def journals_page(request: Request):
     if not user_id:
         return RedirectResponse(url="/login")
     return templates.TemplateResponse("journals.html", {"request": request, "title": "Your Journals", "user_id": user_id})
+
+@app.get("/journals/{journal_id}")
+async def journal_detail_page(journal_id: str, request: Request):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        return RedirectResponse(url="/login")
+    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    if not journal:
+        return RedirectResponse(url="/journals")
+    return templates.TemplateResponse("journal.html", {"request": request, "title": journal.get("name") or "Journal", "journal_id": journal_id, "user_id": user_id, "name": journal.get("name"), "goal": journal.get("goal")})
 
 # -------- AUTH API --------
 # User registration endpoint
@@ -175,3 +187,60 @@ async def get_my_journal(request: Request):
         entry["_id"] = str(entry["_id"])
         entries.append(entry)
     return {"entries": entries}
+
+@app.post("/api/journal/{journal_id}/entries")
+async def create_entry(journal_id: str, request: Request, data: dict = Body(...)):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    # verify ownership
+    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    if not journal:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    text = data.get("text", "").strip()
+    date = data.get("date")
+    if not text:
+        raise HTTPException(status_code=400, detail="Text required")
+    if not date:
+        date = datetime.utcnow().strftime("%m/%d/%Y")
+    doc = {"journal_id": journal_id, "user_id": user_id, "text": text, "date": date}
+    res = await entries_collection.insert_one(doc)
+    return {"msg": "Entry created", "entry_id": str(res.inserted_id)}
+
+@app.get("/api/journal/{user_id}/{journal_id}/entries")
+async def list_entries(user_id: str, journal_id: str, request: Request):
+    # ensure requester matches user_id via cookie to prevent enumeration
+    cookie_uid = request.cookies.get("user_id")
+    if cookie_uid != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    journal = await journals_collection.find_one({"_id": journal_id, "user_id": user_id})
+    if not journal:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    entries = []
+    async for e in entries_collection.find({"journal_id": journal_id, "user_id": user_id}):
+        e["_id"] = str(e["_id"])
+        entries.append(e)
+    return {"entries": entries}
+
+@app.put("/api/journal/entry/{entry_id}")
+async def update_entry(entry_id: str, data: dict = Body(...), request: Request = None):
+    user_id = request.cookies.get("user_id") if request else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    text = data.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text required")
+    result = await entries_collection.update_one({"_id": entry_id, "user_id": user_id}, {"$set": {"text": text}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"msg": "Entry updated"}
+
+@app.delete("/api/journal/entry/{entry_id}")
+async def delete_entry(entry_id: str, request: Request):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = await entries_collection.delete_one({"_id": entry_id, "user_id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"msg": "Entry deleted"}

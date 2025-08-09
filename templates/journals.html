@@ -43,7 +43,7 @@
         created = new Date(ts).toLocaleString();
       }
       const goalShort = j.goal ? esc(j.goal.length > 70 ? j.goal.slice(0,67) + '…' : j.goal) : '';
-      return `<div class="journal-item" style="padding:10px 0;border-bottom:1px solid #eee;">
+      return `<div class="journal-item" style="padding:10px 0;border-bottom:1px solid #eee;cursor:pointer;" onclick="window.location='/journals/${j._id}'">
         <strong>${esc(j.name) || created}</strong>
         <span style="float:right;color:#888;font-size:0.85em;">${created}</span>
         ${goalShort ? `<div style=\"margin-top:4px;color:#555;font-size:0.85em;\">${goalShort}</div>`: ''}

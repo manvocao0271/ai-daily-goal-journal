@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card" id="journal-root" data-journal-id="{{ journal_id }}">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <h2 style="margin:0;" id="journal-name">{{ name or 'Journal' }}</h2>
+      {% if goal %}<div style="margin-top:4px;color:#555;font-size:0.9em;white-space:pre-line;" id="journal-goal">{{ goal }}</div>{% endif %}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" onclick="window.location='/journals'">Back</button>
+      <button class="btn" id="logout-btn">Logout</button>
+    </div>
+  </div>
+  <hr style="margin:16px 0;" />
+  <form id="new-entry-form" style="margin-bottom:16px;">
+    <textarea id="entry-text" class="input" rows="3" placeholder="Write a new entry..."></textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+      <button type="submit" class="btn primary">Add Entry</button>
+    </div>
+  </form>
+  <div id="entries-list"></div>
+</div>
+<script>
+  const JOURNAL_ID = '{{ journal_id }}';
+  const USER_ID = '{{ user_id }}';
+  function esc(str){return (str||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+  async function loadEntries(){
+    const list = document.getElementById('entries-list');
+    list.innerHTML = 'Loading...';
+    const res = await fetch(`/api/journal/${USER_ID}/${JOURNAL_ID}/entries`);
+    if(!res.ok){ list.innerHTML = '<em>Failed to load entries.</em>'; return; }
+    const data = await res.json();
+    let entries = data.entries || [];
+    entries = entries.sort((a,b)=> (b._id||'').localeCompare(a._id||''));
+    if(entries.length===0){ list.innerHTML = '<em>No entries yet.</em>'; return; }
+    list.innerHTML = entries.map(e=>{
+      let created = e.date;
+      if (e._id && e._id.length===24){
+        const ts = parseInt(e._id.substring(0,8),16)*1000;
+        created = new Date(ts).toLocaleString();
+      }
+      return `<div class='entry' data-id='${e._id}' style="border:1px solid #ddd;padding:10px;border-radius:6px;margin-bottom:10px;">
+        <div style='display:flex;justify-content:space-between;align-items:center;'>
+          <strong style='font-size:0.9em;'>${created}</strong>
+          <div style='display:flex;gap:6px;'>
+            <button class='btn' onclick="editEntry('${e._id}')">Edit</button>
+            <button class='btn' onclick="deleteEntry('${e._id}')" style='color:#c00;'>Delete</button>
+          </div>
+        </div>
+        <div class='entry-text' id='entry-text-${e._id}' style='margin-top:6px;white-space:pre-wrap;'>${esc(e.text||'')}</div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('new-entry-form').onsubmit = async (e)=>{
+    e.preventDefault();
+    const text = document.getElementById('entry-text').value.trim();
+    if(!text) return;
+    const date = new Date().toLocaleDateString('en-US');
+    await fetch(`/api/journal/${JOURNAL_ID}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, date }) });
+    document.getElementById('entry-text').value='';
+    loadEntries();
+  };
+  window.editEntry = async (id)=>{
+    const node = document.getElementById('entry-text-'+id);
+    const current = node.textContent;
+    const updated = prompt('Edit entry:', current);
+    if(updated===null) return;
+    await fetch(`/api/journal/entry/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: updated }) });
+    loadEntries();
+  };
+  window.deleteEntry = async (id)=>{
+    if(!confirm('Delete this entry?')) return;
+    await fetch(`/api/journal/entry/${id}`, { method:'DELETE' });
+    loadEntries();
+  };
+  document.getElementById('logout-btn').onclick = async () => { await fetch('/api/logout',{method:'POST'}); window.location='/login'; };
+  loadEntries();
+</script>
+{% endblock %}
