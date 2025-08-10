@@ -29,6 +29,14 @@
     <button class="btn" id="coach-suggest-btn">Get Coaching Suggestion</button>
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
+  <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
+    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan</h3>
+    <div id="plan-controls" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button class="btn" id="generate-plan-btn">Generate / Refresh Plan</button>
+      <label style="font-size:0.75em;color:#555;">Timeframe days: <input id="plan-timeframe" type="number" min="7" max="180" value="30" style="width:70px;padding:4px;"/></label>
+    </div>
+    <div id="plan-steps" style="border:1px solid #ccc;border-radius:6px;background:#fafafa;padding:10px;min-height:40px;font-size:0.85em;"></div>
+  </div>
 </div>
 <!-- Edit Entry Modal -->
 <div id="edit-entry-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:1500;">
@@ -204,19 +212,26 @@
   loadEntries();
   // Elapsed timer logic
   const createdAtISO = document.getElementById('journal-root').getAttribute('data-created-at');
+  function parseISOZ(s){
+    // Ensure trailing Z recognized
+    try { return new Date(s); } catch(e){ return null; }
+  }
   function updateElapsed(){
     if(!createdAtISO) return;
-    const start = new Date(createdAtISO);
+    const start = parseISOZ(createdAtISO);
+    if(!start || isNaN(start.getTime())) return;
     const now = new Date();
     let diff = Math.floor((now - start)/1000);
+    if(diff < 0) diff = 0; // handle clock skew
     const days = Math.floor(diff/86400); diff -= days*86400;
     const hours = Math.floor(diff/3600); diff -= hours*3600;
     const mins = Math.floor(diff/60);
     const parts = [];
     if(days>0) parts.push(days + (days===1?' day':' days'));
-    parts.push(hours + (hours===1?' hr':' hrs'));
+    if(days>0 || hours>0) parts.push(hours + (hours===1?' hr':' hrs'));
     parts.push(mins + (mins===1?' min':' mins'));
-    document.getElementById('elapsed').textContent = 'Started ' + parts.join(', ') + ' ago';
+    const text = (Math.floor((now-start)/60000) < 1) ? 'Started just now' : 'Started ' + parts.join(', ') + ' ago';
+    document.getElementById('elapsed').textContent = text;
   }
   updateElapsed();
   setInterval(updateElapsed, 60*1000);
@@ -234,5 +249,56 @@
       coachBtn.disabled = false; coachBtn.textContent = 'Get Coaching Suggestion';
     };
   }
+  async function loadPlan(){
+    const box = document.getElementById('plan-steps');
+    const res = await fetch(`/api/coach/plan/${JOURNAL_ID}`);
+    if(!res.ok){ box.textContent='Failed to load plan.'; return; }
+    const data = await res.json();
+    renderPlan(data.steps||[]);
+  }
+  function renderPlan(steps){
+    const box = document.getElementById('plan-steps');
+    if(!steps.length){ box.innerHTML = '<em>No plan yet. Generate one.</em>'; return; }
+    box.innerHTML = steps.map(st=>planStepHTML(st)).join('');
+  }
+  function planStepHTML(st){
+    const status = st.status||'pending';
+    const badgeColor = status==='done'? '#2e7d32': status==='in_progress'? '#1565c0' : status==='skipped' ? '#8d6e63' : '#555';
+    return `<div class="plan-step" data-step-id="${st.id}" style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:6px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+        <div style="flex:1 1 auto;">
+          <strong>${escapeHtml(st.order + '. ' + st.title)}</strong>
+          <div style="margin-top:4px;color:#444;white-space:pre-wrap;">${escapeHtml(st.description)}</div>
+          ${st.expected_outcome? `<div style='margin-top:4px;font-size:0.75em;color:#666;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}
+          <div style="margin-top:4px;font-size:0.7em;color:#555;">Est. ${st.suggested_duration_days||1} day(s)</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;min-width:120px;">
+          <span style="background:${badgeColor};color:#fff;padding:2px 6px;border-radius:12px;font-size:0.65em;text-transform:uppercase;">${status}</span>
+          <select class="step-status" style="font-size:0.65em;padding:4px;">
+            <option value="pending" ${status==='pending'?'selected':''}>pending</option>
+            <option value="in_progress" ${status==='in_progress'?'selected':''}>in_progress</option>
+            <option value="done" ${status==='done'?'selected':''}>done</option>
+            <option value="skipped" ${status==='skipped'?'selected':''}>skipped</option>
+          </select>
+          <button class="btn" style="font-size:0.65em;padding:4px 6px;" onclick="updateStepStatus('${st.id}', this.parentElement.querySelector('.step-status').value)">Update</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+  async function updateStepStatus(stepId, status){
+    await fetch(`/api/coach/plan/${JOURNAL_ID}/progress`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: stepId, status })});
+    loadPlan();
+  }
+  document.getElementById('generate-plan-btn').onclick = async ()=>{
+    const btn = document.getElementById('generate-plan-btn');
+    const timeframe = parseInt(document.getElementById('plan-timeframe').value||'30',10);
+    btn.disabled=true; btn.textContent='Generating...';
+    const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID, timeframe_days: timeframe })});
+    if(res.ok){ const data = await res.json(); renderPlan(data.steps||[]); }
+    else { alert('Failed to generate plan'); }
+    btn.disabled=false; btn.textContent='Generate / Refresh Plan';
+  };
+  loadPlan();
 </script>
 {% endblock %}

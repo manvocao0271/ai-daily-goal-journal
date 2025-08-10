@@ -9,7 +9,7 @@ from bson import ObjectId  # add near top with other imports
 from passlib.context import CryptContext
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from ai_client import get_coaching_suggestion, CoachingContext
+from ai_client import get_coaching_suggestion, CoachingContext, get_goal_breakdown
 
 app = FastAPI()
 
@@ -58,6 +58,7 @@ users_collection = db["users"]  # Collection for users
 journals_collection = db["journals"]  # Collection for journal entries
 # Entries collection (same collection or separate). We'll store entries in a separate collection.
 entries_collection = db["journal_entries"]
+plan_collection = db["journal_goal_plans"]
 
 # -------- AUTH PAGES (MPA) --------
 @app.get("/")
@@ -93,8 +94,16 @@ async def journal_detail_page(journal_id: str, request: Request):
     created_at = journal.get("created_at")
     if not created_at:
         # derive from ObjectId timestamp
-        ts = oid.generation_time  # datetime in UTC
-        created_at = ts.isoformat()
+        ts = oid.generation_time  # timezone-aware UTC
+        created_at = ts.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    else:
+        # Normalize if stored without timezone
+        if "Z" not in created_at and "+" not in created_at:
+            created_at = created_at.rstrip("Z")
+            created_at = created_at.split("+")[0]
+            created_at = created_at.replace(" ", "T")
+            if not created_at.endswith("Z"):
+                created_at += "Z"
     return templates.TemplateResponse("journal.html", {"request": request, "title": journal.get("name") or "Journal", "journal_id": journal_id, "user_id": user_id, "name": journal.get("name"), "goal": journal.get("goal"), "created_at": created_at})
 
 # -------- AUTH API --------
@@ -159,7 +168,8 @@ async def add_journal_entry(request: Request, data: dict = Body(...)):
         entry["goal"] = goal
     # Add created_at timestamp if creating a new journal (identified by having a name)
     if name and "created_at" not in entry:
-        entry["created_at"] = datetime.utcnow().isoformat()
+        # Store as explicit UTC (ISO 8601 Z) so client can interpret correctly
+        entry["created_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     result = await journals_collection.insert_one(entry)
     return {"msg": "Journal created.", "entry_id": str(result.inserted_id)}
 
@@ -325,3 +335,57 @@ async def coach_suggest(request: Request, payload: dict = Body(...)):
     context = CoachingContext(goal=journal.get("goal"), recent_entries=recent_excerpt, journal_name=journal.get("name"), max_tokens=int(payload.get("max_tokens", 350)))
     suggestion = await get_coaching_suggestion(context)
     return {"suggestion": suggestion}
+
+@app.post("/api/coach/breakdown")
+async def coach_breakdown(request: Request, payload: dict = Body(...)):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    journal_id = payload.get("journal_id")
+    timeframe_days = payload.get("timeframe_days")
+    if not journal_id:
+        raise HTTPException(status_code=400, detail="journal_id required")
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
+    if not journal:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    goal = journal.get("goal") or ""
+    steps = await get_goal_breakdown(goal, timeframe_days=timeframe_days)
+    # Upsert plan
+    await plan_collection.update_one(
+        {"journal_id": journal_id, "user_id": user_id},
+        {"$set": {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}},
+        upsert=True,
+    )
+    return {"steps": steps, "from_cache": False}
+
+@app.get("/api/coach/plan/{journal_id}")
+async def coach_get_plan(journal_id: str, request: Request):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    doc = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
+    if not doc:
+        return {"steps": []}
+    doc["_id"] = str(doc["_id"])
+    return {"steps": doc.get("steps", [])}
+
+@app.post("/api/coach/plan/{journal_id}/progress")
+async def coach_update_progress(journal_id: str, payload: dict = Body(...), request: Request = None):
+    user_id = request.cookies.get("user_id") if request else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    step_id = payload.get("step_id")
+    status_val = payload.get("status", "done")  # done / in_progress / skipped
+    if not step_id:
+        raise HTTPException(status_code=400, detail="step_id required")
+    result = await plan_collection.update_one(
+        {"journal_id": journal_id, "user_id": user_id, "steps.id": step_id},
+        {"$set": {"steps.$.status": status_val, "steps.$.status_updated_at": datetime.utcnow().isoformat()+"Z"}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return {"msg": "Status updated"}
