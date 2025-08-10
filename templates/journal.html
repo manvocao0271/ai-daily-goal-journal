@@ -25,6 +25,22 @@
   <hr style="margin:16px 0;" />
   <div id="entries-list"></div>
 </div>
+<!-- Edit Entry Modal -->
+<div id="edit-entry-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:1500;">
+  <div style="background:#fff;max-width:640px;width:92%;padding:24px;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:flex;flex-direction:column;max-height:85vh;">
+    <h3 style="margin:0 0 4px;">Edit Daily Entry</h3>
+    <p style="margin:0 0 12px;font-size:0.85em;color:#555;">Each line is timestamped. Edit text, remove a line, or add a new line (a current time will be auto-filled). The time part stays in [HH:MM:SS] format.</p>
+    <div id="edit-lines" style="overflow:auto;border:1px solid #ddd;border-radius:6px;padding:8px;background:#fafafa;margin-bottom:12px;max-height:40vh;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button id="add-edit-line" class="btn">Add Line</button>
+      <div id="edit-error" style="color:#c00;font-size:0.8em;align-self:center;"></div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:10px;">
+      <button id="cancel-edit" class="btn">Cancel</button>
+      <button id="save-edit" class="btn primary">Save Changes</button>
+    </div>
+  </div>
+</div>
 <script>
   const JOURNAL_ID = '{{ journal_id }}';
   const USER_ID = '{{ user_id }}';
@@ -78,19 +94,67 @@
     document.getElementById('entry-form-wrapper').style.display='none';
     loadEntries();
   };
-  window.editEntry = async (id)=>{
-    const node = document.getElementById('entry-text-'+id);
-    const current = node.textContent;
-    const updated = prompt('Edit full entry text (timestamps preserved if kept):', current);
-    if(updated===null) return;
-    await fetch(`/api/journal/entry/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: updated }) });
+  let editingEntryId = null;
+  function openEditEntry(id){
+    editingEntryId = id;
+    const modal = document.getElementById('edit-entry-modal');
+    const container = document.getElementById('edit-lines');
+    const entry = entriesCache.find(e=>e._id===id);
+    container.innerHTML='';
+    if(!entry){return;}
+    const lines = (entry.text||'').split(/\n+/).filter(l=>l.trim().length>0);
+    lines.forEach(l=>addLineRowFromRaw(l, container));
+    if(lines.length===0){ addLineRow(container); }
+    modal.style.display='flex';
+    setTimeout(()=>{ const first = container.querySelector('input.line-text'); if(first) first.focus(); }, 30);
+  }
+  function closeEditEntry(){
+    document.getElementById('edit-entry-modal').style.display='none';
+    document.getElementById('edit-error').textContent='';
+    editingEntryId=null;
+  }
+  function pad(n){return n.toString().padStart(2,'0');}
+  function currentTimeStr(){ const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }
+  function parseLine(raw){
+    const m = raw.match(/^\[(\d{2}:\d{2}:\d{2})\]\s?(.*)$/);
+    if(m) return {time:m[1], text:m[2]};
+    return {time: currentTimeStr(), text: raw};
+  }
+  function addLineRowFromRaw(raw, container){ const p=parseLine(raw); addLineRow(container, p.time, p.text); }
+  function addLineRow(container, timeStr=currentTimeStr(), textStr=''){
+    const row=document.createElement('div');
+    row.className='edit-line-row';
+    row.style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;";
+    row.innerHTML = `<input class='line-time' value='${timeStr}' style="width:80px;padding:4px;border:1px solid #ccc;border-radius:4px;font-family:monospace;" pattern="\\d{2}:\\d{2}:\\d{2}" title="HH:MM:SS"/>`+
+      `<input class='line-text' value="${textStr.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}" style="flex:1;padding:4px;border:1px solid #ccc;border-radius:4px;" placeholder="Entry text"/>`+
+      `<button type='button' class='btn' style='background:#f3f3f3;' onclick='this.parentElement.remove()'>✕</button>`;
+    container.appendChild(row);
+  }
+  document.getElementById('add-edit-line').onclick = () => addLineRow(document.getElementById('edit-lines'));
+  document.getElementById('cancel-edit').onclick = closeEditEntry;
+  document.getElementById('edit-entry-modal').addEventListener('click', e=>{ if(e.target.id==='edit-entry-modal') closeEditEntry(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && editingEntryId) closeEditEntry(); });
+  document.getElementById('save-edit').onclick = async ()=>{
+    const container = document.getElementById('edit-lines');
+    const errorDiv = document.getElementById('edit-error');
+    const rows = Array.from(container.querySelectorAll('.edit-line-row'));
+    if(rows.length===0){ errorDiv.textContent='At least one line required.'; return; }
+    const assembled = [];
+    for(const r of rows){
+      const tInput = r.querySelector('.line-time');
+      const xInput = r.querySelector('.line-text');
+      const timeVal = (tInput.value||'').trim();
+      const textVal = (xInput.value||'').trim();
+      if(!textVal) continue; // skip empty
+      if(!/^\d{2}:\d{2}:\d{2}$/.test(timeVal)){ errorDiv.textContent='Invalid time format on a line.'; return; }
+      assembled.push(`[${timeVal}] ${textVal}`);
+    }
+    if(assembled.length===0){ errorDiv.textContent='All lines empty.'; return; }
+    await fetch(`/api/journal/entry/${editingEntryId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: assembled.join('\n') }) });
+    closeEditEntry();
     loadEntries();
   };
-  window.deleteEntry = async (id)=>{
-    if(!confirm('Delete this entry?')) return;
-    await fetch(`/api/journal/entry/${id}`, { method:'DELETE' });
-    loadEntries();
-  };
+  window.editEntry = openEditEntry;
   document.getElementById('logout-btn').onclick = async () => { await fetch('/api/logout',{method:'POST'}); window.location='/login'; };
   loadEntries();
 </script>
