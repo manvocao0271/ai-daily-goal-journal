@@ -9,7 +9,7 @@ from bson import ObjectId  # add near top with other imports
 from passlib.context import CryptContext
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
-from ai_client import get_coaching_suggestion, CoachingContext, get_goal_breakdown
+from ai_client import get_coaching_suggestion, CoachingContext, get_goal_breakdown, get_entry_evaluation  # updated
 
 app = FastAPI()
 
@@ -411,3 +411,25 @@ async def toggle_step_completion(journal_id: str, payload: dict = Body(...), req
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Step not found")
     return {"msg": "Updated"}
+
+@app.post("/api/coach/evaluate/{journal_id}")
+async def coach_evaluate_entry(journal_id: str, request: Request):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    journal = await journals_collection.find_one({"_id": ObjectId(journal_id), "user_id": user_id})
+    if not journal:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    # Get the most recent entry for today (server UTC date)
+    today_iso_prefix = datetime.utcnow().date().isoformat()
+    cursor = db.journal_entries.find({
+        "journal_id": journal_id,
+        "user_id": user_id,
+        "created_at": {"$regex": f"^{today_iso_prefix}"}
+    }).sort("created_at", -1)
+    latest_today = await cursor.to_list(length=1)
+    if not latest_today:
+        raise HTTPException(status_code=400, detail="No entry found for today to evaluate")
+    entry_text = latest_today[0].get("content", "")
+    evaluation = await get_entry_evaluation(journal.get("goal"), entry_text, journal.get("name"), today_iso_prefix)
+    return {"evaluation": evaluation}

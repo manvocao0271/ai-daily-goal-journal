@@ -26,7 +26,7 @@
   <hr style="margin:16px 0;" />
   <div id="entries-list"></div>
   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-    <button class="btn" id="coach-suggest-btn">Get Coaching Suggestion</button>
+    <button class="btn" id="coach-suggest-btn">Evaluate Today's Entry</button>
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
   <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
@@ -239,14 +239,17 @@
   const coachBox = document.getElementById('coach-suggestion');
   if(coachBtn){
     coachBtn.onclick = async () => {
-      coachBtn.disabled = true; coachBtn.textContent = 'Thinking...';
+      coachBtn.disabled = true; coachBtn.textContent = 'Evaluating...';
       coachBox.style.display='block';
-      coachBox.textContent = 'Generating suggestion...';
+      coachBox.textContent = 'Analyzing today\'s entry...';
       try {
-        const res = await fetch('/api/coach/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({ journal_id: JOURNAL_ID, limit_days: 1 })});
-        if(!res.ok){ coachBox.textContent = 'Error: '+res.status; } else { const data = await res.json(); coachBox.textContent = data.suggestion || '(No suggestion)'; }
+        const res = await fetch(`/api/coach/evaluate/${JOURNAL_ID}`,{method:'POST'});
+        if(!res.ok){
+          if(res.status===400){ coachBox.textContent = 'No entry found for today. Add an entry first.'; }
+          else coachBox.textContent = 'Error: '+res.status;
+        } else { const data = await res.json(); coachBox.textContent = data.evaluation || '(No evaluation)'; }
       } catch(e){ coachBox.textContent = 'Network error.'; }
-      coachBtn.disabled = false; coachBtn.textContent = 'Get Coaching Suggestion';
+      coachBtn.disabled = false; coachBtn.textContent = 'Evaluate Today\'s Entry';
     };
   }
   async function loadPlan(){

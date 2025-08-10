@@ -168,3 +168,31 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
         s["order"] = i
     # If fewer than 8 remain, we just return that count (no padding to avoid generic filler)
     return steps
+
+# -------- Entry Evaluation (Daily Impact) --------
+_EVAL_SYSTEM_PROMPT = (
+    "You are a supportive progress evaluator. Given a user's overarching goal and a single day's journal entry (timestamped lines), produce a concise evaluation. "
+    "Format sections exactly in this order (no headings beyond those labels):\n"
+    "1. Micro Summary: <one sentence>\n"
+    "2. Impact (0-5): <score> - <short justification>\n"
+    "3. Progress Signals: <2-3 comma-separated concise signals OR 'None noted'>\n"
+    "4. Next Micro Focus: <one actionable focus for next day>\n"
+    "5. Encouragement: <motivational sentence ending positively>.\n"
+    "Keep total under 170 words; be specific; never restate the full goal verbatim."
+)
+
+async def get_entry_evaluation(goal: str | None, entry_text: str, journal_name: str | None, date_str: str) -> str:
+    goal_part = goal.strip() if goal else "(No explicit goal)"
+    excerpt = entry_text.strip() or "(No content recorded)"
+    user_prompt = (
+        f"Goal: {goal_part}\nDate: {date_str}\nJournal: {journal_name or 'Journal'}\nEntry Lines:\n{excerpt}\n\nGenerate the evaluation now."  # date included to encourage variability
+    )
+    # Small cache key (do not include date to treat same-day text updates differently only when text changes)
+    h = hashlib.sha256(); h.update(goal_part.encode()); h.update(excerpt.encode()); key = 'eval:' + h.hexdigest()
+    cached = _cache.get(key)
+    now = time.time()
+    if cached and cached[0] > now:
+        return cached[1]
+    result = await _call_groq(user_prompt, max_tokens=300, system_prompt=_EVAL_SYSTEM_PROMPT)
+    _cache[key] = (now + CACHE_TTL_SECONDS, result)
+    return result
