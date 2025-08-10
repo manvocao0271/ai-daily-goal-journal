@@ -26,7 +26,7 @@
   <hr style="margin:16px 0;" />
   <div id="entries-list"></div>
   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-    <button class="btn" id="coach-suggest-btn">Evaluate Today's Entry</button>
+    <button class="btn" id="coach-suggest-btn">Evaluate Current Progress</button>
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
   <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
@@ -241,15 +241,15 @@
     coachBtn.onclick = async () => {
       coachBtn.disabled = true; coachBtn.textContent = 'Evaluating...';
       coachBox.style.display='block';
-      coachBox.textContent = 'Analyzing today\'s entry...';
+      coachBox.textContent = 'Analyzing most recent entry...';
       try {
         const res = await fetch(`/api/coach/evaluate/${JOURNAL_ID}`,{method:'POST'});
         if(!res.ok){
-          if(res.status===400){ coachBox.textContent = 'No entry found for today. Add an entry first.'; }
+          if(res.status===400){ coachBox.textContent = 'No entries yet. Add one first.'; }
           else coachBox.textContent = 'Error: '+res.status;
         } else { const data = await res.json(); coachBox.textContent = data.evaluation || '(No evaluation)'; }
       } catch(e){ coachBox.textContent = 'Network error.'; }
-      coachBtn.disabled = false; coachBtn.textContent = 'Evaluate Today\'s Entry';
+      coachBtn.disabled = false; coachBtn.textContent = 'Evaluate Current Progress';
     };
   }
   async function loadPlan(){
