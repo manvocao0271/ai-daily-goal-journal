@@ -70,8 +70,10 @@
     e.preventDefault();
     const text = document.getElementById('entry-text').value.trim();
     if(!text) return;
-    const today = new Date().toLocaleDateString('en-US');
-    await fetch(`/api/journal/${JOURNAL_ID}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, date: today }) });
+    const now = new Date();
+    const today = now.toLocaleDateString('en-US');
+    const time = now.toLocaleTimeString('en-US', { hour12: false }); // HH:MM:SS local
+    await fetch(`/api/journal/${JOURNAL_ID}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, date: today, time }) });
     document.getElementById('entry-text').value='';
     document.getElementById('entry-form-wrapper').style.display='none';
     loadEntries();

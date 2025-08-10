@@ -207,11 +207,14 @@ async def create_entry(journal_id: str, request: Request, data: dict = Body(...)
         raise HTTPException(status_code=404, detail="Journal not found")
     text = data.get("text", "").strip()
     date = data.get("date")
+    client_time = data.get("time")  # new optional field
     if not text:
         raise HTTPException(status_code=400, detail="Text required")
     if not date:
-        date = datetime.utcnow().strftime("%m/%d/%Y")
-    time_str = datetime.utcnow().strftime("%H:%M:%S")
+        # Keep using client-provided date normally, fallback to server local date
+        date = datetime.now().strftime("%m/%d/%Y")
+    # Use client local time if provided; else server local time (not UTC)
+    time_str = client_time or datetime.now().strftime("%H:%M:%S")
     line = f"[{time_str}] {text}"
     existing = await entries_collection.find_one({"journal_id": journal_id, "user_id": user_id, "date": date})
     if existing:
