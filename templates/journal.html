@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="card" id="journal-root" data-journal-id="{{ journal_id }}">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div>
+<div class="card" id="journal-root" data-journal-id="{{ journal_id }}" data-created-at="{{ created_at }}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <div style="flex:1;">
+      <div id="elapsed" style="font-size:0.8em;color:#666;margin-bottom:4px;">Loading age...</div>
       <h2 style="margin:0;" id="journal-name">{{ name or 'Journal' }}</h2>
       {% if goal %}<div style="margin-top:4px;color:#555;font-size:0.9em;white-space:pre-line;" id="journal-goal">{{ goal }}</div>{% endif %}
     </div>
@@ -197,5 +198,23 @@
   window.editEntry = openEditEntry;
   document.getElementById('logout-btn').onclick = async () => { await fetch('/api/logout',{method:'POST'}); window.location='/login'; };
   loadEntries();
+  // Elapsed timer logic
+  const createdAtISO = document.getElementById('journal-root').getAttribute('data-created-at');
+  function updateElapsed(){
+    if(!createdAtISO) return;
+    const start = new Date(createdAtISO);
+    const now = new Date();
+    let diff = Math.floor((now - start)/1000);
+    const days = Math.floor(diff/86400); diff -= days*86400;
+    const hours = Math.floor(diff/3600); diff -= hours*3600;
+    const mins = Math.floor(diff/60);
+    const parts = [];
+    if(days>0) parts.push(days + (days===1?' day':' days'));
+    parts.push(hours + (hours===1?' hr':' hrs'));
+    parts.push(mins + (mins===1?' min':' mins'));
+    document.getElementById('elapsed').textContent = 'Started ' + parts.join(', ') + ' ago';
+  }
+  updateElapsed();
+  setInterval(updateElapsed, 60*1000);
 </script>
 {% endblock %}

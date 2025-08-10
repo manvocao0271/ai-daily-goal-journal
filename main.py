@@ -92,7 +92,12 @@ async def journal_detail_page(journal_id: str, request: Request):
     journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
     if not journal:
         return RedirectResponse(url="/journals")
-    return templates.TemplateResponse("journal.html", {"request": request, "title": journal.get("name") or "Journal", "journal_id": journal_id, "user_id": user_id, "name": journal.get("name"), "goal": journal.get("goal")})
+    created_at = journal.get("created_at")
+    if not created_at:
+        # derive from ObjectId timestamp
+        ts = oid.generation_time  # datetime in UTC
+        created_at = ts.isoformat()
+    return templates.TemplateResponse("journal.html", {"request": request, "title": journal.get("name") or "Journal", "journal_id": journal_id, "user_id": user_id, "name": journal.get("name"), "goal": journal.get("goal"), "created_at": created_at})
 
 # -------- AUTH API --------
 # User registration endpoint
@@ -154,6 +159,9 @@ async def add_journal_entry(request: Request, data: dict = Body(...)):
         entry["name"] = name
     if goal:
         entry["goal"] = goal
+    # Add created_at timestamp if creating a new journal (identified by having a name)
+    if name and "created_at" not in entry:
+        entry["created_at"] = datetime.utcnow().isoformat()
     result = await journals_collection.insert_one(entry)
     return {"msg": "Journal created.", "entry_id": str(result.inserted_id)}
 
