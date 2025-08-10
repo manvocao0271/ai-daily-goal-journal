@@ -370,10 +370,9 @@ def _normalize_steps(steps):
         steps.sort(key=lambda s: s.get('order', 0))
     except Exception:
         pass
-    # Trim to 8
+    # Trim to 8 but do NOT force padding
     if len(steps) > 8:
         steps = steps[:8]
-    # Reassign order 1..n
     for i, s in enumerate(steps, start=1):
         s['order'] = i
         if 'completed' not in s:

@@ -117,15 +117,16 @@ async def get_coaching_suggestion(context: CoachingContext) -> str:
 
 # ---------------- Goal Breakdown (Plan Generation) -----------------
 _PLAN_SYSTEM_PROMPT = (
-    "You are an expert accountability coach. Break a user's goal into EXACTLY 8 clear, ordered, actionable steps. "
+    "You are an expert accountability coach. Break a user's goal into EXACTLY 8 clear, ordered, actionable steps that advance the goal directly. "
+    "The goal is already defined; DO NOT include any step about defining, clarifying, refining, restating, or setting the goal itself. Start with the first concrete action. "
     "Return STRICT JSON ONLY with key 'steps' (array of length 8). Each step object fields: id (kebab-case 3-6 words), title (<=60 chars), description (<=160 chars), expected_outcome (<=120 chars), order (1-based integer). "
-    "Do NOT include any status, duration, extraneous keys, commentary, markdown, or explanation outside JSON."
+    "Do NOT include status, duration, extra keys, commentary, markdown, or text outside JSON."
 )
 
 _plan_json_pattern = re.compile(r"\{[\s\S]*\}")
 
 async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str, Any]]:
-    """Return up to 8 ordered plan steps for the goal (trim to 8)."""
+    """Return up to 8 ordered plan steps for the goal (trim to 8), excluding meta goal-definition steps."""
     if not goal.strip():
         return []
     user_prompt = f"Goal: {goal.strip()}\nProduce the JSON now.".strip()
@@ -142,21 +143,28 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
             for idx, step in enumerate(raw_steps, start=1):
                 if not isinstance(step, dict):
                     continue
-                sid = step.get("id") or step.get("title") or f"step-{idx}"
+                title = (step.get("title") or "").strip()
+                desc = (step.get("description") or "").strip()
+                lower_combo = f"{title} {desc}".lower()
+                if "define" in lower_combo and "goal" in lower_combo:
+                    continue  # skip meta goal-def step
+                if "clarify" in lower_combo and "goal" in lower_combo:
+                    continue
+                sid = step.get("id") or title or f"step-{idx}"
                 sid = re.sub(r"[^a-z0-9-]", "-", sid.lower()).strip("-")[:48] or f"step-{idx}"
                 steps.append({
                     "id": sid,
-                    "title": (step.get("title") or sid).strip()[:80],
-                    "description": (step.get("description") or "").strip()[:220],
+                    "title": title[:80] or sid,
+                    "description": desc[:220],
                     "expected_outcome": (step.get("expected_outcome") or "").strip()[:160],
                     "order": int(step.get("order") or idx),
                 })
     except Exception:
         steps = []
-    # Trim to 8; re-order sequentially
     steps.sort(key=lambda s: s.get("order", 0))
-    if len(steps) > 8:
-        steps = steps[:8]
+    # Trim to 8 and renumber
+    steps = steps[:8]
     for i, s in enumerate(steps, start=1):
         s["order"] = i
+    # If fewer than 8 remain, we just return that count (no padding to avoid generic filler)
     return steps
