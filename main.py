@@ -353,12 +353,42 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=404, detail="Journal not found")
     goal = journal.get("goal") or ""
     steps = await get_goal_breakdown(goal)
+    steps = _normalize_steps(steps)
     await plan_collection.update_one(
         {"journal_id": journal_id, "user_id": user_id},
         {"$set": {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}},
         upsert=True,
     )
     return {"steps": steps}
+
+# ---- Helper: normalize plan steps count/order ----
+def _normalize_steps(steps):
+    if not isinstance(steps, list):
+        steps = []
+    # Remove any non-dict items
+    steps = [s for s in steps if isinstance(s, dict)]
+    # Sort by 'order' if present else current index
+    try:
+        steps.sort(key=lambda s: s.get('order', 0))
+    except Exception:
+        pass
+    # Trim >10
+    if len(steps) > 10:
+        steps = steps[:10]
+    # Pad <10
+    while len(steps) < 10:
+        n = len(steps) + 1
+        steps.append({
+            "id": f"step-{n}",
+            "title": f"Define Step {n}",
+            "description": "Clarify a concrete action that advances the goal.",
+            "expected_outcome": "Specific progress toward the goal.",
+            "order": n,
+        })
+    # Reassign order sequentially 1..10
+    for i, s in enumerate(steps, start=1):
+        s['order'] = i
+    return steps
 
 @app.get("/api/coach/plan/{journal_id}")
 async def coach_get_plan(journal_id: str, request: Request):
@@ -368,5 +398,10 @@ async def coach_get_plan(journal_id: str, request: Request):
     doc = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
     if not doc:
         return {"steps": []}
+    raw_steps = doc.get("steps", [])
+    steps = _normalize_steps(raw_steps)
+    # If normalization changed length/content, persist
+    if len(raw_steps) != len(steps) or any(a.get('id')!=b.get('id') for a,b in zip(raw_steps, steps)):
+        await plan_collection.update_one({"_id": doc['_id']}, {"$set": {"steps": steps}})
     doc["_id"] = str(doc["_id"])
-    return {"steps": doc.get("steps", [])}
+    return {"steps": steps}
