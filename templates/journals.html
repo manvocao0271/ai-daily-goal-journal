@@ -10,7 +10,7 @@
   </div>
   <div id="journal-list" style="margin-top:12px;"></div>
 </div>
-<!-- Modal -->
+<!-- Create Modal -->
 <div id="create-journal-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.3);align-items:center;justify-content:center;z-index:1000;">
   <div style="background:#fff;padding:24px;border-radius:8px;min-width:340px;box-shadow:0 2px 8px rgba(0,0,0,0.2);">
     <h3>Create New Journal</h3>
@@ -24,9 +24,36 @@
     </form>
   </div>
 </div>
+<!-- Edit/Delete Modal -->
+<div id="edit-journal-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;z-index:1100;">
+  <div style="background:#fff;padding:24px;border-radius:10px;min-width:360px;max-width:480px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">
+    <h3 style="margin-top:0;margin-bottom:10px;">Edit Journal</h3>
+    <label style="display:block;margin-bottom:12px;">Name:<br><input type="text" id="edit-journal-name" class="input" /></label>
+    <label style="display:block;margin-bottom:16px;">Goal / Purpose:<br><textarea id="edit-journal-goal" class="input" rows="3"></textarea></label>
+    <div id="edit-journal-error" style="color:#c00;font-size:0.8em;margin-bottom:10px;"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <button id="delete-journal-btn" class="btn" style="background:#ffe5e5;color:#b00000;">Delete Journal</button>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button id="cancel-edit-journal" class="btn">Cancel</button>
+        <button id="save-edit-journal" class="btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  .gear-btn { background:transparent;border:none;cursor:pointer;font-size:16px;line-height:1;padding:4px 6px;border-radius:4px; }
+  .gear-btn:hover { background:#eee; }
+  .journal-row { position:relative; }
+  .jr-menu { position:absolute; top:6px; right:4px; background:#fff; border:1px solid #ccc; border-radius:6px; min-width:130px; box-shadow:0 4px 12px rgba(0,0,0,.15); padding:6px 0; display:none; z-index:50; }
+  .jr-menu button { width:100%; background:none; border:none; text-align:left; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .jr-menu button:hover { background:#f5f5f5; }
+  .jr-menu button.delete { color:#b00000; }
+</style>
 <script>
   const USER_ID = '{{ user_id }}';
   function esc(str){return (str||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+  let journalsState = [];
+  let editingJournalId = null;
   async function loadJournals() {
     const list = document.getElementById('journal-list');
     list.innerHTML = 'Loading...';
@@ -35,27 +62,98 @@
     const data = await res.json();
     let journals = data.entries || [];
     journals = journals.sort((a,b) => (b._id || '').localeCompare(a._id || ''));
+    journalsState = journals;
     if (journals.length === 0) { list.innerHTML = '<em>No journals yet.</em>'; return; }
-    list.innerHTML = journals.map(j => {
-      let created = j.date;
-      if (j._id && j._id.length === 24) {
-        const ts = parseInt(j._id.substring(0,8), 16) * 1000;
-        created = new Date(ts).toLocaleString();
-      }
-      const goalShort = j.goal ? esc(j.goal.length > 70 ? j.goal.slice(0,67) + '…' : j.goal) : '';
-      return `<div class="journal-item" style="padding:10px 0;border-bottom:1px solid #eee;cursor:pointer;" onclick="window.location='/journals/${j._id}'">
-        <strong>${esc(j.name) || created}</strong>
-        <span style="float:right;color:#888;font-size:0.85em;">${created}</span>
-        ${goalShort ? `<div style=\"margin-top:4px;color:#555;font-size:0.85em;\">${goalShort}</div>`: ''}
-      </div>`;
-    }).join('');
+    list.innerHTML = journals.map(j => renderJournalRow(j)).join('');
+    attachRowEvents();
   }
-  document.getElementById('create-journal-btn').onclick = () => {
-    document.getElementById('create-journal-modal').style.display = 'flex';
-  };
-  document.getElementById('cancel-create-journal').onclick = () => {
-    document.getElementById('create-journal-modal').style.display = 'none';
-  };
+  function renderJournalRow(j){
+    let created = j.date;
+    if (j._id && j._id.length === 24) {
+      const ts = parseInt(j._id.substring(0,8), 16) * 1000;
+      created = new Date(ts).toLocaleString();
+    }
+    const goalShort = j.goal ? esc(j.goal.length > 70 ? j.goal.slice(0,67) + '…' : j.goal) : '';
+    return `<div class="journal-item journal-row" data-id="${j._id}" style="padding:10px 0 12px;border-bottom:1px solid #eee;">
+      <div style="display:flex;align-items:flex-start;gap:8px;">
+        <div style="flex:1;cursor:pointer;" onclick="window.location='/journals/${j._id}'">
+          <strong>${esc(j.name) || created}</strong>
+          <span style="float:right;color:#888;font-size:0.75em;">${created}</span>
+          ${goalShort ? `<div style=\"margin-top:4px;color:#555;font-size:0.75em;\">${goalShort}</div>`: ''}
+        </div>
+        <button class="gear-btn" aria-label="Journal actions" data-gear="${j._id}">⚙</button>
+        <div class="jr-menu" id="jr-menu-${j._id}">
+          <button data-action="edit" data-id="${j._id}">Edit</button>
+          <button class="delete" data-action="delete" data-id="${j._id}">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function attachRowEvents(){
+    document.querySelectorAll('[data-gear]').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const id = btn.getAttribute('data-gear');
+        document.querySelectorAll('.jr-menu').forEach(m=>{ if(m.id !== 'jr-menu-'+id) m.style.display='none'; });
+        const menu = document.getElementById('jr-menu-'+id); menu.style.display = (menu.style.display==='block')?'none':'block';
+      });
+    });
+    document.querySelectorAll('.jr-menu button').forEach(b=>{
+      b.addEventListener('click', e=>{
+        e.stopPropagation();
+        const id = b.getAttribute('data-id');
+        const action = b.getAttribute('data-action');
+        if(action==='edit'){ openEditModal(id); }
+        else if(action==='delete'){ openEditModal(id, true); }
+        document.querySelectorAll('.jr-menu').forEach(m=> m.style.display='none');
+      });
+    });
+    document.addEventListener('click', e=>{
+      if(!e.target.closest('.journal-row')){
+        document.querySelectorAll('.jr-menu').forEach(m=> m.style.display='none');
+      }
+    });
+  }
+  function openEditModal(id, del=false){
+    const j = journalsState.find(x=>x._id===id); if(!j) return;
+    editingJournalId = id;
+    document.getElementById('edit-journal-name').value = j.name || '';
+    document.getElementById('edit-journal-goal').value = j.goal || '';
+    document.getElementById('edit-journal-error').textContent='';
+    document.getElementById('edit-journal-modal').style.display='flex';
+    if(del){ // immediate delete confirm
+      handleDelete();
+    }
+  }
+  async function handleSave(){
+    if(!editingJournalId) return;
+    const name = document.getElementById('edit-journal-name').value.trim();
+    const goal = document.getElementById('edit-journal-goal').value.trim();
+    if(!name){ document.getElementById('edit-journal-error').textContent='Name required.'; return; }
+    const res = await fetch(`/api/journal/${editingJournalId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, goal }) });
+    if(!res.ok){ document.getElementById('edit-journal-error').textContent='Update failed.'; return; }
+    closeEditModal();
+    loadJournals();
+  }
+  async function handleDelete(){
+    if(!editingJournalId) return;
+    if(!confirm('Delete this journal and all its data?')) return;
+    const res = await fetch(`/api/journal/${editingJournalId}`, { method:'DELETE' });
+    if(!res.ok){ alert('Delete failed'); return; }
+    closeEditModal();
+    loadJournals();
+  }
+  function closeEditModal(){
+    document.getElementById('edit-journal-modal').style.display='none';
+    editingJournalId = null;
+  }
+  document.getElementById('save-edit-journal').onclick = handleSave;
+  document.getElementById('delete-journal-btn').onclick = handleDelete;
+  document.getElementById('cancel-edit-journal').onclick = closeEditModal;
+  document.getElementById('edit-journal-modal').addEventListener('click', e=>{ if(e.target.id==='edit-journal-modal') closeEditModal(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && editingJournalId) closeEditModal(); });
+  document.getElementById('create-journal-btn').onclick = () => { document.getElementById('create-journal-modal').style.display = 'flex'; };
+  document.getElementById('cancel-create-journal').onclick = () => { document.getElementById('create-journal-modal').style.display = 'none'; };
   document.getElementById('create-journal-form').onsubmit = async (e) => {
     e.preventDefault();
     const name = document.getElementById('new-journal-name').value.trim();
@@ -68,10 +166,7 @@
     document.getElementById('create-journal-modal').style.display = 'none';
     loadJournals();
   };
-  document.getElementById('logout-btn').onclick = async () => {
-    await fetch('/api/logout', { method:'POST' });
-    window.location.href = '/login';
-  };
+  document.getElementById('logout-btn').onclick = async () => { await fetch('/api/logout', { method:'POST' }); window.location.href = '/login'; };
   loadJournals();
 </script>
 {% endblock %}

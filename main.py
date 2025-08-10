@@ -176,18 +176,45 @@ async def add_journal_entry(request: Request, data: dict = Body(...)):
 
 # Endpoint to update journal text or name
 @app.put("/api/journal/{journal_id}")
-async def update_journal(journal_id: str, data: dict = Body(...)):
+async def update_journal(journal_id: str, data: dict = Body(...), request: Request = None):
+    user_id = request.cookies.get("user_id") if request else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     update_fields = {}
     if "text" in data:
         update_fields["text"] = data["text"]
     if "name" in data:
         update_fields["name"] = data["name"]
+    if "goal" in data:
+        update_fields["goal"] = data["goal"]
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update.")
-    result = await journals_collection.update_one({"_id": journal_id}, {"$set": update_fields})
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    result = await journals_collection.update_one({"_id": oid, "user_id": user_id}, {"$set": update_fields})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Journal not found.")
     return {"msg": "Journal updated."}
+
+@app.delete("/api/journal/{journal_id}")
+async def delete_journal(journal_id: str, request: Request):
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    # Delete journal + related entries, plan, evaluations
+    j_res = await journals_collection.delete_one({"_id": oid, "user_id": user_id})
+    await entries_collection.delete_many({"journal_id": journal_id, "user_id": user_id})
+    await plan_collection.delete_many({"journal_id": journal_id, "user_id": user_id})
+    await evaluations_collection.delete_many({"journal_id": journal_id, "user_id": user_id})
+    if j_res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    return {"msg": "Journal deleted"}
 
 # Endpoint to get all journal entries for a user
 @app.get("/api/journal/{user_id}")
