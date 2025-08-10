@@ -30,13 +30,11 @@
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
   <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
-    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan (10 Steps)</h3>
+    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan (8 Steps)</h3>
     <div id="plan-controls" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <button class="btn" id="generate-plan-btn">Generate / Refresh Plan</button>
     </div>
-    <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;">
-      <!-- steps inserted here -->
-    </ol>
+    <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;"></ol>
   </div>
 </div>
 <!-- Edit Entry Modal -->
@@ -260,9 +258,26 @@
   function renderPlan(steps){
     const list = document.getElementById('plan-steps');
     if(!steps.length){ list.innerHTML = '<li><em>No plan yet. Generate one.</em></li>'; return; }
-    list.innerHTML = steps.map(st=>`<li style='margin-bottom:8px;'><strong>${escapeHtml(st.title)}</strong><br><span style='color:#444;'>${escapeHtml(st.description)}</span>${st.expected_outcome?`<div style='font-size:0.7em;color:#666;margin-top:2px;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}</li>`).join('');
+    list.innerHTML = steps.map(st=>{
+      const checked = st.completed? 'checked' : '';
+      return `<li style='margin-bottom:10px;display:flex;align-items:flex-start;gap:8px;'>
+        <input type='checkbox' class='plan-step-check' data-step-id='${st.id}' ${checked} style='margin-top:4px;'/>
+        <div style='flex:1;'>
+          <strong>${escapeHtml(st.title)}</strong><br>
+          <span style='color:#444;'>${escapeHtml(st.description)}</span>
+          ${st.expected_outcome?`<div style='font-size:0.7em;color:#666;margin-top:2px;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}
+        </div>
+      </li>`;
+    }).join('');
+    // Attach listeners
+    list.querySelectorAll('.plan-step-check').forEach(cb=>{
+      cb.addEventListener('change', async (e)=>{
+        const id = cb.getAttribute('data-step-id');
+        const completed = cb.checked;
+        try { await fetch(`/api/coach/plan/${JOURNAL_ID}/toggle`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: id, completed })}); } catch(err){ alert('Update failed'); cb.checked = !completed; }
+      });
+    });
   }
-  function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
   document.getElementById('generate-plan-btn').onclick = async ()=>{
     const btn = document.getElementById('generate-plan-btn');
     btn.disabled=true; btn.textContent='Generating...';

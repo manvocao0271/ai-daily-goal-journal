@@ -365,29 +365,19 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
 def _normalize_steps(steps):
     if not isinstance(steps, list):
         steps = []
-    # Remove any non-dict items
     steps = [s for s in steps if isinstance(s, dict)]
-    # Sort by 'order' if present else current index
     try:
         steps.sort(key=lambda s: s.get('order', 0))
     except Exception:
         pass
-    # Trim >10
-    if len(steps) > 10:
-        steps = steps[:10]
-    # Pad <10
-    while len(steps) < 10:
-        n = len(steps) + 1
-        steps.append({
-            "id": f"step-{n}",
-            "title": f"Define Step {n}",
-            "description": "Clarify a concrete action that advances the goal.",
-            "expected_outcome": "Specific progress toward the goal.",
-            "order": n,
-        })
-    # Reassign order sequentially 1..10
+    # Trim to 8
+    if len(steps) > 8:
+        steps = steps[:8]
+    # Reassign order 1..n
     for i, s in enumerate(steps, start=1):
         s['order'] = i
+        if 'completed' not in s:
+            s['completed'] = False
     return steps
 
 @app.get("/api/coach/plan/{journal_id}")
@@ -400,8 +390,25 @@ async def coach_get_plan(journal_id: str, request: Request):
         return {"steps": []}
     raw_steps = doc.get("steps", [])
     steps = _normalize_steps(raw_steps)
-    # If normalization changed length/content, persist
-    if len(raw_steps) != len(steps) or any(a.get('id')!=b.get('id') for a,b in zip(raw_steps, steps)):
+    if raw_steps != steps:
         await plan_collection.update_one({"_id": doc['_id']}, {"$set": {"steps": steps}})
     doc["_id"] = str(doc["_id"])
     return {"steps": steps}
+
+@app.post("/api/coach/plan/{journal_id}/toggle")
+async def toggle_step_completion(journal_id: str, payload: dict = Body(...), request: Request = None):
+    user_id = request.cookies.get("user_id") if request else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    step_id = payload.get("step_id")
+    completed = payload.get("completed")
+    if step_id is None or completed is None:
+        raise HTTPException(status_code=400, detail="step_id and completed required")
+    # Use positional operator
+    result = await plan_collection.update_one(
+        {"journal_id": journal_id, "user_id": user_id, "steps.id": step_id},
+        {"$set": {"steps.$.completed": bool(completed), "steps.$.completed_at": datetime.utcnow().isoformat()+"Z" if completed else None}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return {"msg": "Updated"}

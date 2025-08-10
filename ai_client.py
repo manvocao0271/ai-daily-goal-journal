@@ -117,15 +117,15 @@ async def get_coaching_suggestion(context: CoachingContext) -> str:
 
 # ---------------- Goal Breakdown (Plan Generation) -----------------
 _PLAN_SYSTEM_PROMPT = (
-    "You are an expert accountability coach. Break a user's goal into EXACTLY 10 clear, ordered, actionable steps. "
-    "Return STRICT JSON ONLY with key 'steps' (array of length 10). Each step object fields: id (kebab-case 3-6 words), title (<=60 chars), description (<=160 chars actionable detail), expected_outcome (<=120 chars), order (1-based integer). "
-    "Do NOT include any status, duration, extraneous keys, commentary, markdown, or explanation outside the JSON."
+    "You are an expert accountability coach. Break a user's goal into EXACTLY 8 clear, ordered, actionable steps. "
+    "Return STRICT JSON ONLY with key 'steps' (array of length 8). Each step object fields: id (kebab-case 3-6 words), title (<=60 chars), description (<=160 chars), expected_outcome (<=120 chars), order (1-based integer). "
+    "Do NOT include any status, duration, extraneous keys, commentary, markdown, or explanation outside JSON."
 )
 
 _plan_json_pattern = re.compile(r"\{[\s\S]*\}")
 
 async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str, Any]]:
-    """Return exactly 10 ordered plan steps for the goal."""
+    """Return up to 8 ordered plan steps for the goal (trim to 8)."""
     if not goal.strip():
         return []
     user_prompt = f"Goal: {goal.strip()}\nProduce the JSON now.".strip()
@@ -153,20 +153,10 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
                 })
     except Exception:
         steps = []
-    # Normalize to exactly 10
+    # Trim to 8; re-order sequentially
     steps.sort(key=lambda s: s.get("order", 0))
-    if len(steps) > 10:
-        steps = steps[:10]
-    while len(steps) < 10:
-        n = len(steps) + 1
-        steps.append({
-            "id": f"step-{n}",
-            "title": f"Define Step {n}",
-            "description": "Clarify a concrete action that advances the goal.",
-            "expected_outcome": "Specific progress toward the goal.",
-            "order": n,
-        })
-    # Re-number order to 1..10
+    if len(steps) > 8:
+        steps = steps[:8]
     for i, s in enumerate(steps, start=1):
         s["order"] = i
     return steps
