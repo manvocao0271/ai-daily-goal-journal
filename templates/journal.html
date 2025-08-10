@@ -294,9 +294,11 @@
     const btn = document.getElementById('generate-plan-btn');
     const timeframe = parseInt(document.getElementById('plan-timeframe').value||'30',10);
     btn.disabled=true; btn.textContent='Generating...';
-    const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID, timeframe_days: timeframe })});
-    if(res.ok){ const data = await res.json(); renderPlan(data.steps||[]); }
-    else { alert('Failed to generate plan'); }
+    try {
+      const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID, timeframe_days: timeframe })});
+      if(res.ok){ const data = await res.json(); renderPlan(data.steps||[]); }
+      else { const txt = await res.text(); alert('Failed to generate plan\n'+txt.slice(0,300)); }
+    } catch(e){ alert('Network error: '+e); }
     btn.disabled=false; btn.textContent='Generate / Refresh Plan';
   };
   loadPlan();

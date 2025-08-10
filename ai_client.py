@@ -26,6 +26,7 @@ except ImportError:  # graceful handling if requirements not yet installed
     httpx = None  # type: ignore
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_API_BASE = os.getenv("GROQ_API_BASE", "https://api.groq.com")
 CACHE_TTL_SECONDS = int(os.getenv("AI_CACHE_TTL", "600"))  # 10 minutes default
 
 # Simple in-memory cache: key -> (expires_at, value)
@@ -55,7 +56,7 @@ SYSTEM_PROMPT = (
     "Keep total length under 160 words. Avoid repeating the goal verbatim more than once."
 )
 
-async def _call_groq(prompt: str, max_tokens: int) -> str:
+async def _call_groq(prompt: str, max_tokens: int, system_prompt: str | None = None) -> str:
     api_key = os.getenv("GROQ_API_KEY")  # dynamic fetch so a restart isn't strictly required after export
     if not api_key:
         return (
@@ -64,32 +65,35 @@ async def _call_groq(prompt: str, max_tokens: int) -> str:
         )
     if httpx is None:
         return "httpx not installed yet; install requirements to enable AI calls."
-
+    sp = system_prompt or SYSTEM_PROMPT
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": sp},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": max_tokens,
         "temperature": 0.6,
         "stream": False,
     }
-    timeout = httpx.Timeout(15.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post("/openai/v1/chat/completions", headers=headers, json=payload)
-        if r.status_code == 401:
-            return "Invalid GROQ API key (401)."
-        if r.status_code == 429:
-            return "Rate limit hit; try again soon or configure a local fallback model."
-        if r.status_code >= 500:
-            return f"Upstream error {r.status_code}; please retry."
-        data = r.json()
-        try:
-            return data["choices"][0]["message"]["content"].strip()
-        except Exception:
-            return json.dumps(data)[:800]
+    timeout = httpx.Timeout(20.0, connect=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, base_url=GROQ_API_BASE) as client:
+            r = await client.post("/openai/v1/chat/completions", headers=headers, json=payload)
+            if r.status_code == 401:
+                return "Invalid GROQ API key (401)."
+            if r.status_code == 429:
+                return "Rate limit hit; try again soon or configure a local fallback model."
+            if r.status_code >= 500:
+                return f"Upstream error {r.status_code}; please retry."
+            data = r.json()
+            try:
+                return data["choices"][0]["message"]["content"].strip()
+            except Exception:
+                return json.dumps(data)[:800]
+    except Exception as e:
+        return f"[error] request failed: {type(e).__name__}: {e}"[:400]
 
 async def get_coaching_suggestion(context: CoachingContext) -> str:
     """Return a coaching suggestion, with caching and error handling."""
@@ -107,7 +111,7 @@ async def get_coaching_suggestion(context: CoachingContext) -> str:
         f"Recent journal lines (latest first):\n{entries_excerpt}\n\n"
         "Craft the response following the required 3-section structure."
     )
-    suggestion = await _call_groq(prompt, context.max_tokens)
+    suggestion = await _call_groq(prompt, context.max_tokens, system_prompt=SYSTEM_PROMPT)
     _cache[key] = (now + CACHE_TTL_SECONDS, suggestion)
     return suggestion
 
@@ -127,7 +131,7 @@ async def get_goal_breakdown(goal: str, timeframe_days: int | None = None, max_t
         return []
     tf_hint = f" Target timeframe: ~{timeframe_days} days." if timeframe_days else ""
     user_prompt = f"Goal: {goal.strip()}\n{tf_hint}\nProduce the JSON plan now.".strip()
-    raw = await _call_groq(user_prompt, max_tokens=max_tokens)
+    raw = await _call_groq(user_prompt, max_tokens=max_tokens, system_prompt=_PLAN_SYSTEM_PROMPT)
     # Attempt to extract JSON
     text = raw.strip()
     match = _plan_json_pattern.search(text)
