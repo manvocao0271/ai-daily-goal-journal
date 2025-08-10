@@ -15,7 +15,7 @@
   <div id="entry-form-wrapper" style="display:none;">
     <hr style="margin:16px 0 12px;" />
     <form id="new-entry-form" style="margin-bottom:16px;">
-      <textarea id="entry-text" class="input" rows="3" placeholder="Write a new entry..."></textarea>
+      <textarea id="entry-text" class="input" rows="3" placeholder="Write a new entry... (time will be timestamped automatically)"></textarea>
       <div style="display:flex;justify-content:flex-end;margin-top:8px;gap:8px;">
         <button type="button" class="btn" id="cancel-entry">Cancel</button>
         <button type="submit" class="btn primary">Save Entry</button>
@@ -44,8 +44,9 @@
     let created = e.date;
     if (e._id && e._id.length===24){
       const ts = parseInt(e._id.substring(0,8),16)*1000;
-      created = new Date(ts).toLocaleString();
+      created = new Date(ts).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
     }
+    // server text already includes [HH:MM:SS] lines
     return `<div class='entry' data-id='${e._id}' style="border:1px solid #ddd;padding:10px;border-radius:6px;margin-bottom:10px;">
       <div style='display:flex;justify-content:space-between;align-items:center;'>
         <strong style='font-size:0.9em;'>${created}</strong>
@@ -54,7 +55,7 @@
           <button class='btn' onclick="deleteEntry('${e._id}')" style='color:#c00;'>Delete</button>
         </div>
       </div>
-      <div class='entry-text' id='entry-text-${e._id}' style='margin-top:6px;white-space:pre-wrap;'>${esc(e.text||'')}</div>
+      <div class='entry-text' id='entry-text-${e._id}' style='margin-top:6px;white-space:pre-wrap;font-family:monospace;'>${esc(e.text||'')}</div>
     </div>`;
   }
   document.getElementById('toggle-entry-form').onclick = () => {
@@ -70,15 +71,7 @@
     const text = document.getElementById('entry-text').value.trim();
     if(!text) return;
     const today = new Date().toLocaleDateString('en-US');
-    // Attempt to merge with existing same-date entry in cache first
-    const existing = entriesCache.find(en => en.date === today);
-    if(existing){
-      // Append text locally; send update request
-      const merged = existing.text ? existing.text + '\n' + text : text;
-      await fetch(`/api/journal/entry/${existing._id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: merged }) });
-    } else {
-      await fetch(`/api/journal/${JOURNAL_ID}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, date: today }) });
-    }
+    await fetch(`/api/journal/${JOURNAL_ID}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, date: today }) });
     document.getElementById('entry-text').value='';
     document.getElementById('entry-form-wrapper').style.display='none';
     loadEntries();
@@ -86,7 +79,7 @@
   window.editEntry = async (id)=>{
     const node = document.getElementById('entry-text-'+id);
     const current = node.textContent;
-    const updated = prompt('Edit entry:', current);
+    const updated = prompt('Edit full entry text (timestamps preserved if kept):', current);
     if(updated===null) return;
     await fetch(`/api/journal/entry/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: updated }) });
     loadEntries();

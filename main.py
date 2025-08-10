@@ -211,13 +211,14 @@ async def create_entry(journal_id: str, request: Request, data: dict = Body(...)
         raise HTTPException(status_code=400, detail="Text required")
     if not date:
         date = datetime.utcnow().strftime("%m/%d/%Y")
-    # Merge logic: find existing entry for same date
+    time_str = datetime.utcnow().strftime("%H:%M:%S")
+    line = f"[{time_str}] {text}"
     existing = await entries_collection.find_one({"journal_id": journal_id, "user_id": user_id, "date": date})
     if existing:
-        new_text = (existing.get("text") + "\n" + text) if existing.get("text") else text
+        new_text = (existing.get("text") + "\n" + line) if existing.get("text") else line
         await entries_collection.update_one({"_id": existing["_id"]}, {"$set": {"text": new_text}})
         return {"msg": "Entry appended", "entry_id": str(existing["_id"]) }
-    doc = {"journal_id": journal_id, "user_id": user_id, "text": text, "date": date}
+    doc = {"journal_id": journal_id, "user_id": user_id, "text": line, "date": date}
     res = await entries_collection.insert_one(doc)
     return {"msg": "Entry created", "entry_id": str(res.inserted_id)}
 
