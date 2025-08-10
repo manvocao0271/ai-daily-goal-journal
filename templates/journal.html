@@ -67,6 +67,7 @@
   const JOURNAL_ID = '{{ journal_id }}';
   const USER_ID = '{{ user_id }}';
   function esc(str){return (str||'').replace(/[&<>"]'/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+  function escapeHtml(s){ return esc(s); }
   let entriesCache = [];
   async function loadEntries(){
     const list = document.getElementById('entries-list');
