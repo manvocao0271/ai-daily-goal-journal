@@ -30,12 +30,13 @@
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
   <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
-    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan</h3>
+    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan (10 Steps)</h3>
     <div id="plan-controls" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <button class="btn" id="generate-plan-btn">Generate / Refresh Plan</button>
-      <label style="font-size:0.75em;color:#555;">Timeframe days: <input id="plan-timeframe" type="number" min="7" max="180" value="30" style="width:70px;padding:4px;"/></label>
     </div>
-    <div id="plan-steps" style="border:1px solid #ccc;border-radius:6px;background:#fafafa;padding:10px;min-height:40px;font-size:0.85em;"></div>
+    <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;">
+      <!-- steps inserted here -->
+    </ol>
   </div>
 </div>
 <!-- Edit Entry Modal -->
@@ -250,52 +251,23 @@
     };
   }
   async function loadPlan(){
-    const box = document.getElementById('plan-steps');
+    const list = document.getElementById('plan-steps');
     const res = await fetch(`/api/coach/plan/${JOURNAL_ID}`);
-    if(!res.ok){ box.textContent='Failed to load plan.'; return; }
+    if(!res.ok){ list.innerHTML='<li><em>Failed to load plan.</em></li>'; return; }
     const data = await res.json();
     renderPlan(data.steps||[]);
   }
   function renderPlan(steps){
-    const box = document.getElementById('plan-steps');
-    if(!steps.length){ box.innerHTML = '<em>No plan yet. Generate one.</em>'; return; }
-    box.innerHTML = steps.map(st=>planStepHTML(st)).join('');
-  }
-  function planStepHTML(st){
-    const status = st.status||'pending';
-    const badgeColor = status==='done'? '#2e7d32': status==='in_progress'? '#1565c0' : status==='skipped' ? '#8d6e63' : '#555';
-    return `<div class="plan-step" data-step-id="${st.id}" style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:6px;background:#fff;">
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
-        <div style="flex:1 1 auto;">
-          <strong>${escapeHtml(st.order + '. ' + st.title)}</strong>
-          <div style="margin-top:4px;color:#444;white-space:pre-wrap;">${escapeHtml(st.description)}</div>
-          ${st.expected_outcome? `<div style='margin-top:4px;font-size:0.75em;color:#666;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}
-          <div style="margin-top:4px;font-size:0.7em;color:#555;">Est. ${st.suggested_duration_days||1} day(s)</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;min-width:120px;">
-          <span style="background:${badgeColor};color:#fff;padding:2px 6px;border-radius:12px;font-size:0.65em;text-transform:uppercase;">${status}</span>
-          <select class="step-status" style="font-size:0.65em;padding:4px;">
-            <option value="pending" ${status==='pending'?'selected':''}>pending</option>
-            <option value="in_progress" ${status==='in_progress'?'selected':''}>in_progress</option>
-            <option value="done" ${status==='done'?'selected':''}>done</option>
-            <option value="skipped" ${status==='skipped'?'selected':''}>skipped</option>
-          </select>
-          <button class="btn" style="font-size:0.65em;padding:4px 6px;" onclick="updateStepStatus('${st.id}', this.parentElement.querySelector('.step-status').value)">Update</button>
-        </div>
-      </div>
-    </div>`;
+    const list = document.getElementById('plan-steps');
+    if(!steps.length){ list.innerHTML = '<li><em>No plan yet. Generate one.</em></li>'; return; }
+    list.innerHTML = steps.map(st=>`<li style='margin-bottom:8px;'><strong>${escapeHtml(st.title)}</strong><br><span style='color:#444;'>${escapeHtml(st.description)}</span>${st.expected_outcome?`<div style='font-size:0.7em;color:#666;margin-top:2px;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}</li>`).join('');
   }
   function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
-  async function updateStepStatus(stepId, status){
-    await fetch(`/api/coach/plan/${JOURNAL_ID}/progress`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: stepId, status })});
-    loadPlan();
-  }
   document.getElementById('generate-plan-btn').onclick = async ()=>{
     const btn = document.getElementById('generate-plan-btn');
-    const timeframe = parseInt(document.getElementById('plan-timeframe').value||'30',10);
     btn.disabled=true; btn.textContent='Generating...';
     try {
-      const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID, timeframe_days: timeframe })});
+      const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID })});
       if(res.ok){ const data = await res.json(); renderPlan(data.steps||[]); }
       else { const txt = await res.text(); alert('Failed to generate plan\n'+txt.slice(0,300)); }
     } catch(e){ alert('Network error: '+e); }

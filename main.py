@@ -342,7 +342,6 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
     journal_id = payload.get("journal_id")
-    timeframe_days = payload.get("timeframe_days")
     if not journal_id:
         raise HTTPException(status_code=400, detail="journal_id required")
     try:
@@ -353,14 +352,13 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
     goal = journal.get("goal") or ""
-    steps = await get_goal_breakdown(goal, timeframe_days=timeframe_days)
-    # Upsert plan
+    steps = await get_goal_breakdown(goal)
     await plan_collection.update_one(
         {"journal_id": journal_id, "user_id": user_id},
         {"$set": {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}},
         upsert=True,
     )
-    return {"steps": steps, "from_cache": False}
+    return {"steps": steps}
 
 @app.get("/api/coach/plan/{journal_id}")
 async def coach_get_plan(journal_id: str, request: Request):
@@ -372,20 +370,3 @@ async def coach_get_plan(journal_id: str, request: Request):
         return {"steps": []}
     doc["_id"] = str(doc["_id"])
     return {"steps": doc.get("steps", [])}
-
-@app.post("/api/coach/plan/{journal_id}/progress")
-async def coach_update_progress(journal_id: str, payload: dict = Body(...), request: Request = None):
-    user_id = request.cookies.get("user_id") if request else None
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    step_id = payload.get("step_id")
-    status_val = payload.get("status", "done")  # done / in_progress / skipped
-    if not step_id:
-        raise HTTPException(status_code=400, detail="step_id required")
-    result = await plan_collection.update_one(
-        {"journal_id": journal_id, "user_id": user_id, "steps.id": step_id},
-        {"$set": {"steps.$.status": status_val, "steps.$.status_updated_at": datetime.utcnow().isoformat()+"Z"}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Step not found")
-    return {"msg": "Status updated"}
