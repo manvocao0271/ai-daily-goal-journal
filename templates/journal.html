@@ -41,6 +41,16 @@
     </div>
   </div>
 </div>
+<style>
+  .entry-actions { position: relative; }
+  .gear-btn { background:transparent;border:none;cursor:pointer;font-size:16px;line-height:1;padding:4px 6px;border-radius:4px; }
+  .gear-btn:hover { background:#eee; }
+  .entry-menu { position:absolute; top:28px; right:0; background:#fff; border:1px solid #ccc; border-radius:6px; min-width:120px; box-shadow:0 4px 12px rgba(0,0,0,.15); padding:6px 0; display:none; z-index:20; }
+  .entry-menu button { width:100%; background:none; border:none; text-align:left; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .entry-menu button:hover { background:#f5f5f5; }
+  .entry-menu button.delete { color:#c01818; }
+  .entry.deleted { opacity:.45; }
+</style>
 <script>
   const JOURNAL_ID = '{{ journal_id }}';
   const USER_ID = '{{ user_id }}';
@@ -62,18 +72,48 @@
       const ts = parseInt(e._id.substring(0,8),16)*1000;
       created = new Date(ts).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
     }
-    // server text already includes [HH:MM:SS] lines
-    return `<div class='entry' data-id='${e._id}' style="border:1px solid #ddd;padding:10px;border-radius:6px;margin-bottom:10px;">
+    const entryId = e._id;
+    return `<div class='entry' data-id='${entryId}' style="border:1px solid #ddd;padding:10px 10px 10px 10px;border-radius:6px;margin-bottom:10px;">
       <div style='display:flex;justify-content:space-between;align-items:center;'>
         <strong style='font-size:0.9em;'>${created}</strong>
-        <div style='display:flex;gap:6px;'>
-          <button class='btn' onclick="editEntry('${e._id}')">Edit</button>
-          <button class='btn' onclick="deleteEntry('${e._id}')" style='color:#c00;'>Delete</button>
+        <div class='entry-actions'>
+          <button class='gear-btn' aria-label='Entry actions' onclick="toggleEntryMenu(event,'${entryId}')">⚙</button>
+          <div class='entry-menu' id='menu-${entryId}'>
+            <button onclick="openEditEntry('${entryId}')">Edit</button>
+            <button class='delete' onclick="confirmDeleteEntry('${entryId}')">Delete</button>
+          </div>
         </div>
       </div>
-      <div class='entry-text' id='entry-text-${e._id}' style='margin-top:6px;white-space:pre-wrap;font-family:monospace;'>${esc(e.text||'')}</div>
+      <div class='entry-text' id='entry-text-${entryId}' style='margin-top:6px;white-space:pre-wrap;font-family:monospace;'>${esc(e.text||'')}</div>
     </div>`;
   }
+  window.toggleEntryMenu = (ev,id)=>{
+    ev.stopPropagation();
+    document.querySelectorAll('.entry-menu').forEach(m=>{ if(m.id!==`menu-${id}`) m.style.display='none'; });
+    const menu = document.getElementById('menu-'+id);
+    menu.style.display = (menu.style.display==='block') ? 'none' : 'block';
+  };
+  window.confirmDeleteEntry = async (id)=>{
+    const entryDiv = document.querySelector(`.entry[data-id='${id}']`);
+    if(entryDiv) entryDiv.classList.add('deleted');
+    try {
+      const res = await fetch(`/api/journal/entry/${id}`, { method:'DELETE' });
+      if(!res.ok){
+        if(entryDiv) entryDiv.classList.remove('deleted');
+        alert('Delete failed');
+        return;
+      }
+      await loadEntries();
+    } catch(e){
+      if(entryDiv) entryDiv.classList.remove('deleted');
+      alert('Network error');
+    }
+  };
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('.entry-actions')){
+      document.querySelectorAll('.entry-menu').forEach(m=> m.style.display='none');
+    }
+  });
   document.getElementById('toggle-entry-form').onclick = () => {
     document.getElementById('entry-form-wrapper').style.display = 'block';
     document.getElementById('entry-text').focus();
