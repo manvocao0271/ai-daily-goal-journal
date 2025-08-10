@@ -187,8 +187,8 @@ async def get_entry_evaluation(goal: str | None, entry_text: str, journal_name: 
     user_prompt = (
         f"Goal: {goal_part}\nDate: {date_str}\nJournal: {journal_name or 'Journal'}\nEntry Lines:\n{excerpt}\n\nGenerate the evaluation now."  # date included to encourage variability
     )
-    # Small cache key (do not include date to treat same-day text updates differently only when text changes)
-    h = hashlib.sha256(); h.update(goal_part.encode()); h.update(excerpt.encode()); key = 'eval:' + h.hexdigest()
+    # Cache key includes date to force new day regeneration while still deduping repeated calls same day
+    h = hashlib.sha256(); h.update(goal_part.encode()); h.update(excerpt.encode()); h.update(date_str.encode()); key = 'eval:' + h.hexdigest()
     cached = _cache.get(key)
     now = time.time()
     if cached and cached[0] > now:

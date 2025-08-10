@@ -59,6 +59,7 @@ journals_collection = db["journals"]  # Collection for journal entries
 # Entries collection (same collection or separate). We'll store entries in a separate collection.
 entries_collection = db["journal_entries"]
 plan_collection = db["journal_goal_plans"]
+evaluations_collection = db["journal_entry_evaluations"]  # new collection for per-day evaluations
 
 # -------- AUTH PAGES (MPA) --------
 @app.get("/")
@@ -417,19 +418,35 @@ async def coach_evaluate_entry(journal_id: str, request: Request):
     user_id = request.cookies.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    journal = await journals_collection.find_one({"_id": ObjectId(journal_id), "user_id": user_id})
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
-    # Get the most recent entry for today (server UTC date)
-    today_iso_prefix = datetime.utcnow().date().isoformat()
-    cursor = db.journal_entries.find({
+    # Resolve today's date (UTC) and both padded & non-padded forms used by entries
+    today_dt = datetime.utcnow().date()
+    iso_today = today_dt.isoformat()  # YYYY-MM-DD
+    padded = today_dt.strftime("%m/%d/%Y")
+    unpadded = f"{today_dt.month}/{today_dt.day}/{today_dt.year}"
+    # If an evaluation already exists for today, return it directly
+    existing_eval = await evaluations_collection.find_one({"journal_id": journal_id, "user_id": user_id, "date": iso_today})
+    if existing_eval:
+        return {"evaluation": existing_eval.get("evaluation", "")}
+    # Fetch today's entry (single document aggregated by create_entry logic)
+    entry_doc = await entries_collection.find_one({"journal_id": journal_id, "user_id": user_id, "date": {"$in": [padded, unpadded]}})
+    if not entry_doc:
+        raise HTTPException(status_code=400, detail="No entry found for today to evaluate")
+    entry_text = entry_doc.get("text", "")
+    evaluation = await get_entry_evaluation(journal.get("goal"), entry_text, journal.get("name"), iso_today)
+    # Store evaluation (ephemeral: keep only today; cleanup older for this journal)
+    await evaluations_collection.delete_many({"journal_id": journal_id, "user_id": user_id, "date": {"$ne": iso_today}})
+    await evaluations_collection.insert_one({
         "journal_id": journal_id,
         "user_id": user_id,
-        "created_at": {"$regex": f"^{today_iso_prefix}"}
-    }).sort("created_at", -1)
-    latest_today = await cursor.to_list(length=1)
-    if not latest_today:
-        raise HTTPException(status_code=400, detail="No entry found for today to evaluate")
-    entry_text = latest_today[0].get("content", "")
-    evaluation = await get_entry_evaluation(journal.get("goal"), entry_text, journal.get("name"), today_iso_prefix)
+        "date": iso_today,
+        "evaluation": evaluation,
+        "created_at": datetime.utcnow().isoformat()+"Z"
+    })
     return {"evaluation": evaluation}
