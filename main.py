@@ -1,21 +1,19 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, status, Depends, Body, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime, timedelta
-from fastapi import HTTPException, status, Depends, Body
 import os
 from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId  # add near top with other imports
+from passlib.context import CryptContext
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
+from ai_client import get_coaching_suggestion, CoachingContext
 
 app = FastAPI()
 
 START_DATE = datetime(2025, 8, 4, 0, 6, 0)
-
-from passlib.context import CryptContext
-from fastapi.templating import Jinja2Templates
-from fastapi import Response
-from fastapi.responses import RedirectResponse
 
 # Templates for MPA
 templates = Jinja2Templates(directory="templates")
@@ -281,3 +279,49 @@ async def delete_entry(entry_id: str, request: Request):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"msg": "Entry deleted"}
+
+@app.post("/api/coach/suggest")
+async def coach_suggest(request: Request, payload: dict = Body(...)):
+    """Return a short structured coaching suggestion based on goal + recent entry text.
+    Body fields:
+      journal_id: str (required) - used to fetch goal + recent entry lines
+      limit_days: int (optional, default 1) - how many days of entries to include (aggregate newest first)
+      max_tokens: int (optional)
+    """
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    journal_id = payload.get("journal_id")
+    if not journal_id:
+        raise HTTPException(status_code=400, detail="journal_id required")
+    try:
+        oid = ObjectId(journal_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid journal id")
+    journal = await journals_collection.find_one({"_id": oid, "user_id": user_id})
+    if not journal:
+        raise HTTPException(status_code=404, detail="Journal not found")
+    # Collect recent entries
+    limit_days = int(payload.get("limit_days", 1))
+    if limit_days < 1:
+        limit_days = 1
+    cutoff_dates = set()
+    # Build set of recent date strings (MM/DD/YYYY) up to limit_days back
+    now = datetime.now()
+    for i in range(limit_days):
+        cutoff_dates.add((now - timedelta(days=i)).strftime("%m/%d/%Y"))
+    lines = []
+    async for e in entries_collection.find({"journal_id": journal_id, "user_id": user_id, "date": {"$in": list(cutoff_dates)}}):
+        # Newest first by ObjectId desc: buffer first then sort
+        lines.append((e["_id"], e.get("text", "")))
+    # Sort newest first by ObjectId (descending)
+    lines.sort(key=lambda t: str(t[0]), reverse=True)
+    aggregated = []
+    for _, txt in lines:
+        if txt:
+            # Keep line order inside a day as-is; prepend day groups newest first
+            aggregated.extend(reversed(txt.splitlines()))  # reversed so latest appended lines come first
+    recent_excerpt = "\n".join(aggregated[:120])  # safety cap
+    context = CoachingContext(goal=journal.get("goal"), recent_entries=recent_excerpt, journal_name=journal.get("name"), max_tokens=int(payload.get("max_tokens", 350)))
+    suggestion = await get_coaching_suggestion(context)
+    return {"suggestion": suggestion}

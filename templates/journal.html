@@ -25,6 +25,10 @@
   </div>
   <hr style="margin:16px 0;" />
   <div id="entries-list"></div>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn" id="coach-suggest-btn">Get Coaching Suggestion</button>
+  </div>
+  <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
 </div>
 <!-- Edit Entry Modal -->
 <div id="edit-entry-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:1500;">
@@ -216,5 +220,19 @@
   }
   updateElapsed();
   setInterval(updateElapsed, 60*1000);
+  const coachBtn = document.getElementById('coach-suggest-btn');
+  const coachBox = document.getElementById('coach-suggestion');
+  if(coachBtn){
+    coachBtn.onclick = async () => {
+      coachBtn.disabled = true; coachBtn.textContent = 'Thinking...';
+      coachBox.style.display='block';
+      coachBox.textContent = 'Generating suggestion...';
+      try {
+        const res = await fetch('/api/coach/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({ journal_id: JOURNAL_ID, limit_days: 1 })});
+        if(!res.ok){ coachBox.textContent = 'Error: '+res.status; } else { const data = await res.json(); coachBox.textContent = data.suggestion || '(No suggestion)'; }
+      } catch(e){ coachBox.textContent = 'Network error.'; }
+      coachBtn.disabled = false; coachBtn.textContent = 'Get Coaching Suggestion';
+    };
+  }
 </script>
 {% endblock %}
