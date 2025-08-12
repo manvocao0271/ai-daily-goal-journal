@@ -118,7 +118,7 @@ async def get_coaching_suggestion(context: CoachingContext) -> str:
 # ---------------- Goal Breakdown (Plan Generation) -----------------
 _PLAN_SYSTEM_PROMPT = (
     "You are an expert accountability coach. Break a user's goal into EXACTLY 8 clear, ordered, actionable steps that advance the goal directly. "
-    "The goal is already defined; DO NOT include any step about defining, clarifying, refining, restating, or setting the goal itself. Start with the first concrete action. "
+    "The goal is already defined; DO NOT include any step about defining, clarifying, refining, restating, or setting goals (e.g., 'Set Personal Goals', 'Set SMART Goals', 'Establish Goals'). Start with the first concrete action. "
     "Return STRICT JSON ONLY with key 'steps' (array of length 8). Each step object fields: id (kebab-case 3-6 words), title (<=60 chars), description (<=160 chars), expected_outcome (<=120 chars), order (1-based integer). "
     "Do NOT include status, duration, extra keys, commentary, markdown, or text outside JSON."
 )
@@ -146,10 +146,8 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
                 title = (step.get("title") or "").strip()
                 desc = (step.get("description") or "").strip()
                 lower_combo = f"{title} {desc}".lower()
-                if "define" in lower_combo and "goal" in lower_combo:
-                    continue  # skip meta goal-def step
-                if "clarify" in lower_combo and "goal" in lower_combo:
-                    continue
+                if _is_meta_goal_step(lower_combo):
+                    continue  # skip meta goal-setting/definition steps
                 sid = step.get("id") or title or f"step-{idx}"
                 sid = re.sub(r"[^a-z0-9-]", "-", sid.lower()).strip("-")[:48] or f"step-{idx}"
                 steps.append({
@@ -161,13 +159,92 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
                 })
     except Exception:
         steps = []
+    # Sort by order
     steps.sort(key=lambda s: s.get("order", 0))
+    # If we filtered out meta steps and have fewer than 8, try to backfill with concrete steps
+    if goal.strip() and len(steps) < 8:
+        try:
+            needed = 8 - len(steps)
+            backfill = await _generate_concrete_steps(goal, existing_titles=[s.get("title","") for s in steps], start_order=len(steps)+1, count=needed)
+            # Filter any lingering meta/dupe and extend
+            for st in backfill:
+                title = (st.get("title") or "").strip()
+                desc = (st.get("description") or "").strip()
+                if not title:
+                    continue
+                if _is_meta_goal_step(f"{title} {desc}".lower()):
+                    continue
+                # ensure unique by title id
+                if any(title.lower()==x.get("title"," ").lower() for x in steps):
+                    continue
+                steps.append({
+                    "id": re.sub(r"[^a-z0-9-]","-", (st.get("id") or title).lower()).strip("-")[:48] or f"step-{len(steps)+1}",
+                    "title": title[:80],
+                    "description": desc[:220],
+                    "expected_outcome": (st.get("expected_outcome") or "").strip()[:160],
+                    "order": int(st.get("order") or len(steps)+1),
+                })
+        except Exception:
+            pass
     # Trim to 8 and renumber
     steps = steps[:8]
     for i, s in enumerate(steps, start=1):
         s["order"] = i
-    # If fewer than 8 remain, we just return that count (no padding to avoid generic filler)
     return steps
+
+def _is_meta_goal_step(lower_combo: str) -> bool:
+    """Return True if a step text appears to be about setting/defining goals rather than taking action."""
+    if not lower_combo:
+        return False
+    # Common meta patterns
+    patterns = [
+        r"\bset(ting)?\b[^\n]*\bgoals?\b",
+        r"\bdefine\b[^\n]*\bgoals?\b",
+        r"\bclarify\b[^\n]*\bgoals?\b",
+        r"\brefine\b[^\n]*\bgoals?\b",
+        r"\bestablish\b[^\n]*\bgoals?\b",
+        r"\bdetermine\b[^\n]*\bgoals?\b",
+        r"\barticulate\b[^\n]*\bgoals?\b",
+        r"\bchoose\b[^\n]*\bgoals?\b",
+        r"\bidentify\b[^\n]*\bgoals?\b",
+        r"\bgoal[-\s]?setting\b",
+        r"\bsmart\b[^\n]*\bgoals?\b",
+        r"\bset personal goals\b",
+    ]
+    for pat in patterns:
+        if re.search(pat, lower_combo):
+            return True
+    # Avoid excluding legitimate steps that mention "goal" incidentally; only above patterns trigger
+    return False
+
+async def _generate_concrete_steps(goal: str, existing_titles: List[str], start_order: int, count: int) -> List[Dict[str, Any]]:
+    """Ask the model for additional concrete steps that advance the goal directly, avoiding meta goal-setting. Returns raw step dicts."""
+    existing_titles = [t.strip() for t in existing_titles if isinstance(t, str)]
+    titles_blob = "\n".join(f"- {t}" for t in existing_titles if t)
+    system = (
+        "You add missing steps for a user's already-defined goal. "
+        "Add ONLY concrete actions that directly advance the goal. "
+        "Do NOT include any step about defining/clarifying/refining/setting goals (no SMART goals). "
+        "Return STRICT JSON with key 'steps' (array length EXACTLY N) with fields id, title, description, expected_outcome, order. "
+        "Titles must be distinct from the provided existing titles."
+    )
+    user = (
+        f"Goal: {goal}\n"
+        f"Existing step titles (avoid duplicates):\n{titles_blob or '- (none)'}\n\n"
+        f"Generate EXACTLY {count} additional steps continuing from order {start_order}."
+    )
+    raw = await _call_groq(user, max_tokens=700, system_prompt=system)
+    text = raw.strip()
+    m = _plan_json_pattern.search(text)
+    if m:
+        text = m.group(0)
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and isinstance(data.get("steps"), list):
+            return data["steps"]
+    except Exception:
+        return []
+    return []
 
 # -------- Entry Evaluation (Daily Impact) --------
 _EVAL_SYSTEM_PROMPT = (
