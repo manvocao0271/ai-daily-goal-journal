@@ -125,10 +125,11 @@ _PLAN_SYSTEM_PROMPT = (
 
 _plan_json_pattern = re.compile(r"\{[\s\S]*\}")
 
-async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str, Any]]:
+async def get_goal_breakdown(goal: str, max_tokens: int = 900, avoid_titles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Return up to 8 ordered plan steps for the goal (trim to 8), excluding meta goal-definition steps."""
     if not goal.strip():
         return []
+    avoid_set = set(t.strip().lower() for t in (avoid_titles or []) if isinstance(t, str))
     user_prompt = f"Goal: {goal.strip()}\nProduce the JSON now.".strip()
     raw = await _call_groq(user_prompt, max_tokens=max_tokens, system_prompt=_PLAN_SYSTEM_PROMPT)
     text = raw.strip()
@@ -146,8 +147,11 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
                 title = (step.get("title") or "").strip()
                 desc = (step.get("description") or "").strip()
                 lower_combo = f"{title} {desc}".lower()
+                title_norm = title.lower()
                 if _is_meta_goal_step(lower_combo):
                     continue  # skip meta goal-setting/definition steps
+                if title_norm in avoid_set:
+                    continue  # skip previously completed titles
                 sid = step.get("id") or title or f"step-{idx}"
                 sid = re.sub(r"[^a-z0-9-]", "-", sid.lower()).strip("-")[:48] or f"step-{idx}"
                 steps.append({
@@ -165,7 +169,8 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
     if goal.strip() and len(steps) < 8:
         try:
             needed = 8 - len(steps)
-            backfill = await _generate_concrete_steps(goal, existing_titles=[s.get("title","") for s in steps], start_order=len(steps)+1, count=needed)
+            existing_titles = [s.get("title","") for s in steps]
+            backfill = await _generate_concrete_steps(goal, existing_titles=existing_titles, start_order=len(steps)+1, count=needed)
             # Filter any lingering meta/dupe and extend
             for st in backfill:
                 title = (st.get("title") or "").strip()
@@ -176,6 +181,8 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900) -> List[Dict[str,
                     continue
                 # ensure unique by title id
                 if any(title.lower()==x.get("title"," ").lower() for x in steps):
+                    continue
+                if title.lower() in avoid_set:
                     continue
                 steps.append({
                     "id": re.sub(r"[^a-z0-9-]","-", (st.get("id") or title).lower()).strip("-")[:48] or f"step-{len(steps)+1}",

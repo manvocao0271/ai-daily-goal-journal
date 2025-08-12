@@ -391,11 +391,20 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
     goal = journal.get("goal") or ""
-    steps = await get_goal_breakdown(goal)
+    # Consult existing plan to avoid repeating previously completed steps
+    existing_plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
+    completed_titles = []
+    if existing_plan:
+        completed_titles = [t.strip().lower() for t in existing_plan.get("completed_titles", []) if isinstance(t, str)]
+    steps = await get_goal_breakdown(goal, avoid_titles=completed_titles)
     steps = _normalize_steps(steps)
+    # Preserve completed_titles across refreshes
+    update_doc = {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}
+    if completed_titles:
+        update_doc["completed_titles"] = completed_titles
     await plan_collection.update_one(
         {"journal_id": journal_id, "user_id": user_id},
-        {"$set": {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}},
+        {"$set": update_doc},
         upsert=True,
     )
     return {"steps": steps}
@@ -442,13 +451,30 @@ async def toggle_step_completion(journal_id: str, payload: dict = Body(...), req
     completed = payload.get("completed")
     if step_id is None or completed is None:
         raise HTTPException(status_code=400, detail="step_id and completed required")
-    # Use positional operator
-    result = await plan_collection.update_one(
-        {"journal_id": journal_id, "user_id": user_id, "steps.id": step_id},
+    # Fetch the plan to find the step's title for permanent history
+    plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
+    if not plan or not isinstance(plan.get("steps"), list):
+        raise HTTPException(status_code=404, detail="Plan not found")
+    target = None
+    for s in plan["steps"]:
+        if s.get("id") == step_id:
+            target = s
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Step not found")
+    # Update completion flag
+    await plan_collection.update_one(
+        {"_id": plan["_id"], "steps.id": step_id},
         {"$set": {"steps.$.completed": bool(completed), "steps.$.completed_at": datetime.utcnow().isoformat()+"Z" if completed else None}}
     )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Step not found")
+    # If completed, record its title in a permanent set to avoid repetition in future generations
+    if bool(completed):
+        title_norm = (target.get("title") or str(target.get("id") or "")).strip().lower()
+        if title_norm:
+            await plan_collection.update_one(
+                {"_id": plan["_id"]},
+                {"$addToSet": {"completed_titles": title_norm}}
+            )
     return {"msg": "Updated"}
 
 @app.post("/api/coach/evaluate/{journal_id}")
