@@ -125,8 +125,8 @@ _PLAN_SYSTEM_PROMPT = (
 
 _plan_json_pattern = re.compile(r"\{[\s\S]*\}")
 
-async def get_goal_breakdown(goal: str, max_tokens: int = 900, avoid_titles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Return up to 8 ordered plan steps for the goal (trim to 8), excluding meta goal-definition steps."""
+async def get_goal_breakdown(goal: str, max_tokens: int = 900, avoid_titles: Optional[List[str]] = None, desired_count: int = 8) -> List[Dict[str, Any]]:
+    """Return up to desired_count ordered plan steps for the goal (trim to desired_count), excluding meta/meta-planning steps."""
     if not goal.strip():
         return []
     avoid_set = set(t.strip().lower() for t in (avoid_titles or []) if isinstance(t, str))
@@ -166,9 +166,9 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900, avoid_titles: Opt
     # Sort by order
     steps.sort(key=lambda s: s.get("order", 0))
     # If we filtered out meta steps and have fewer than 8, try to backfill with concrete steps
-    if goal.strip() and len(steps) < 8:
+    if goal.strip() and len(steps) < desired_count:
         try:
-            needed = 8 - len(steps)
+            needed = max(0, desired_count - len(steps))
             existing_titles = [s.get("title","") for s in steps]
             backfill = await _generate_concrete_steps(goal, existing_titles=existing_titles, start_order=len(steps)+1, count=needed)
             # Filter any lingering meta/dupe and extend
@@ -193,8 +193,8 @@ async def get_goal_breakdown(goal: str, max_tokens: int = 900, avoid_titles: Opt
                 })
         except Exception:
             pass
-    # Trim to 8 and renumber
-    steps = steps[:8]
+    # Trim to desired_count and renumber
+    steps = steps[:desired_count]
     for i, s in enumerate(steps, start=1):
         s["order"] = i
     return steps

@@ -391,14 +391,22 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
     if not journal:
         raise HTTPException(status_code=404, detail="Journal not found")
     goal = journal.get("goal") or ""
-    # Consult existing plan to avoid repeating previously completed steps
+    # Load existing plan and completed titles
     existing_plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
     completed_titles = []
+    existing_steps = []
     if existing_plan:
         completed_titles = [t.strip().lower() for t in existing_plan.get("completed_titles", []) if isinstance(t, str)]
-    steps = await get_goal_breakdown(goal, avoid_titles=completed_titles)
-    steps = _normalize_steps(steps)
-    # Preserve completed_titles across refreshes
+        existing_steps = existing_plan.get("steps", []) or []
+    existing_steps = _normalize_steps(existing_steps)
+    # Request one new step avoiding previously completed and current step titles
+    avoid = completed_titles + [ (s.get("title") or "").strip().lower() for s in existing_steps ]
+    new_steps = await get_goal_breakdown(goal, avoid_titles=avoid, desired_count=1)
+    for st in new_steps:
+        tnorm = (st.get("title") or "").strip().lower()
+        if tnorm and not any((s.get("title") or "").strip().lower() == tnorm for s in existing_steps):
+            existing_steps.append(st)
+    steps = _normalize_steps(existing_steps)
     update_doc = {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}
     if completed_titles:
         update_doc["completed_titles"] = completed_titles
@@ -407,7 +415,8 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
         {"$set": update_doc},
         upsert=True,
     )
-    return {"steps": steps}
+    latest_plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
+    return {"steps": steps, "completed_titles": completed_titles, "completed_records": (latest_plan or {}).get("completed_records", [])}
 
 # ---- Helper: normalize plan steps count/order ----
 def _normalize_steps(steps):
@@ -434,13 +443,13 @@ async def coach_get_plan(journal_id: str, request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated")
     doc = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
     if not doc:
-        return {"steps": []}
+        return {"steps": [], "completed_titles": [], "completed_records": []}
     raw_steps = doc.get("steps", [])
     steps = _normalize_steps(raw_steps)
     if raw_steps != steps:
         await plan_collection.update_one({"_id": doc['_id']}, {"$set": {"steps": steps}})
     doc["_id"] = str(doc["_id"])
-    return {"steps": steps}
+    return {"steps": steps, "completed_titles": doc.get("completed_titles", []), "completed_records": doc.get("completed_records", [])}
 
 @app.post("/api/coach/plan/{journal_id}/toggle")
 async def toggle_step_completion(journal_id: str, payload: dict = Body(...), request: Request = None):
@@ -469,12 +478,23 @@ async def toggle_step_completion(journal_id: str, payload: dict = Body(...), req
     )
     # If completed, record its title in a permanent set to avoid repetition in future generations
     if bool(completed):
-        title_norm = (target.get("title") or str(target.get("id") or "")).strip().lower()
+        title_display = (target.get("title") or str(target.get("id") or "")).strip()
+        title_norm = title_display.lower()
         if title_norm:
             await plan_collection.update_one(
                 {"_id": plan["_id"]},
-                {"$addToSet": {"completed_titles": title_norm}}
+                {
+                    "$addToSet": {"completed_titles": title_norm},
+                    "$push": {"completed_records": {"title": title_display, "completed_at": datetime.utcnow().isoformat()+"Z"}}
+                }
             )
+    # If marking complete, also remove from active steps to keep list focused on pending items
+    if bool(completed):
+        new_steps = [s for s in plan.get("steps", []) if s.get("id") != step_id]
+        await plan_collection.update_one(
+            {"_id": plan["_id"]},
+            {"$set": {"steps": _normalize_steps(new_steps)}}
+        )
     return {"msg": "Updated"}
 
 @app.post("/api/coach/evaluate/{journal_id}")

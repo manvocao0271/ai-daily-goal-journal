@@ -34,6 +34,10 @@
     <div id="plan-controls" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <button class="btn" id="generate-plan-btn">Generate / Refresh Plan</button>
     </div>
+    <div id="completed-steps" style="margin:0 0 12px 0;display:none;">
+      <div style="font-weight:600;margin-bottom:6px;">Completed Steps</div>
+      <ul id="completed-list" style="margin:0;padding-left:18px;font-size:0.9em;color:#444;"></ul>
+    </div>
     <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;"></ol>
   </div>
 </div>
@@ -254,7 +258,16 @@
     const res = await fetch(`/api/coach/plan/${JOURNAL_ID}`);
     if(!res.ok){ list.innerHTML='<li><em>Failed to load plan.</em></li>'; return; }
     const data = await res.json();
+    renderCompleted(data.completed_records||[], data.completed_titles||[]);
     renderPlan(data.steps||[]);
+  }
+  function renderCompleted(records, titles){
+    const box = document.getElementById('completed-steps');
+    const ul = document.getElementById('completed-list');
+    const items = (records && records.length) ? records : (titles||[]).map(t=>({title:t, completed_at:null}));
+    if(!items || !items.length){ box.style.display='none'; ul.innerHTML=''; return; }
+    box.style.display='block';
+    ul.innerHTML = items.map(r=>`<li>${escapeHtml(r.title || r)}</li>`).join('');
   }
   function renderPlan(steps){
     const list = document.getElementById('plan-steps');
@@ -272,11 +285,11 @@
         </div>
       </li>`;
     }).join('');
-    list.querySelectorAll('.plan-step-check').forEach(cb=>{
+  list.querySelectorAll('.plan-step-check').forEach(cb=>{
       cb.addEventListener('change', async ()=>{
         const id = cb.getAttribute('data-step-id');
         const completed = cb.checked;
-        try { await fetch(`/api/coach/plan/${JOURNAL_ID}/toggle`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: id, completed })}); } catch(err){ alert('Update failed'); cb.checked = !completed; }
+    try { await fetch(`/api/coach/plan/${JOURNAL_ID}/toggle`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: id, completed })}); await loadPlan(); } catch(err){ alert('Update failed'); cb.checked = !completed; }
       });
     });
   }
@@ -285,7 +298,7 @@
     btn.disabled=true; btn.textContent='Generating...';
     try {
       const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID })});
-      if(res.ok){ const data = await res.json(); renderPlan(data.steps||[]); }
+  if(res.ok){ const data = await res.json(); renderCompleted(data.completed_records||[], data.completed_titles||[]); renderPlan(data.steps||[]); }
       else { const txt = await res.text(); alert('Failed to generate plan\n'+txt.slice(0,300)); }
     } catch(e){ alert('Network error: '+e); }
     btn.disabled=false; btn.textContent='Generate / Refresh Plan';
