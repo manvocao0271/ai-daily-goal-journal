@@ -118,7 +118,7 @@ async def get_coaching_suggestion(context: CoachingContext) -> str:
 # ---------------- Goal Breakdown (Plan Generation) -----------------
 _PLAN_SYSTEM_PROMPT = (
     "You are an expert accountability coach. Break a user's goal into EXACTLY 8 clear, ordered, actionable steps that advance the goal directly. "
-    "The goal is already defined; DO NOT include any step about defining, clarifying, refining, restating, or setting goals (e.g., 'Set Personal Goals', 'Set SMART Goals', 'Establish Goals'). Start with the first concrete action. "
+    "The goal is already defined; DO NOT include any step about defining, clarifying, refining, restating, or setting goals (e.g., 'Set Personal Goals', 'Set SMART Goals', 'Establish Goals') or generic meta-planning (e.g., 'Create an Action Plan', 'Plan Your Approach'). Start with the first concrete action. "
     "Return STRICT JSON ONLY with key 'steps' (array of length 8). Each step object fields: id (kebab-case 3-6 words), title (<=60 chars), description (<=160 chars), expected_outcome (<=120 chars), order (1-based integer). "
     "Do NOT include status, duration, extra keys, commentary, markdown, or text outside JSON."
 )
@@ -210,6 +210,9 @@ def _is_meta_goal_step(lower_combo: str) -> bool:
         r"\bgoal[-\s]?setting\b",
         r"\bsmart\b[^\n]*\bgoals?\b",
         r"\bset personal goals\b",
+    # Meta planning phrases (avoid generic 'action plan')
+    r"\b(create|develop|build|draft|make|outline|design)\b[^\n]*\baction\s*plan\b",
+    r"\bplan\s+your\s+(approach|actions|steps)\b",
     ]
     for pat in patterns:
         if re.search(pat, lower_combo):
@@ -224,7 +227,7 @@ async def _generate_concrete_steps(goal: str, existing_titles: List[str], start_
     system = (
         "You add missing steps for a user's already-defined goal. "
         "Add ONLY concrete actions that directly advance the goal. "
-        "Do NOT include any step about defining/clarifying/refining/setting goals (no SMART goals). "
+        "Do NOT include any step about defining/clarifying/refining/setting goals (no SMART goals) or generic planning like 'Create an Action Plan'. "
         "Return STRICT JSON with key 'steps' (array length EXACTLY N) with fields id, title, description, expected_outcome, order. "
         "Titles must be distinct from the provided existing titles."
     )
