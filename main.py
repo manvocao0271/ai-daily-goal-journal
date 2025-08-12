@@ -187,6 +187,17 @@ async def update_journal(journal_id: str, data: dict = Body(...), request: Reque
         update_fields["name"] = data["name"]
     if "goal" in data:
         update_fields["goal"] = data["goal"]
+    # Allow updating created_at (expects ISO8601 string, preferably with Z/offset)
+    if "created_at" in data:
+        val = data.get("created_at")
+        if isinstance(val, str):
+            val = val.strip()
+            # Normalize to include 'Z' if no timezone provided
+            if val and ("Z" not in val and "+" not in val):
+                # if looks like 'YYYY-MM-DDTHH:MM' or similar, append Z
+                if "T" in val:
+                    val = val + "Z"
+        update_fields["created_at"] = val
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update.")
     try:

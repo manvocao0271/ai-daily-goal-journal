@@ -30,6 +30,10 @@
     <h3 style="margin-top:0;margin-bottom:10px;">Edit Journal</h3>
     <label style="display:block;margin-bottom:12px;">Name:<br><input type="text" id="edit-journal-name" class="input" /></label>
     <label style="display:block;margin-bottom:16px;">Goal / Purpose:<br><textarea id="edit-journal-goal" class="input" rows="3"></textarea></label>
+    <label style="display:block;margin-bottom:16px;">Created At:<br>
+      <input type="datetime-local" id="edit-journal-created" class="input" />
+      <div style="color:#666;font-size:0.75em;margin-top:4px;">Adjust the journal's original creation timestamp (UTC/local accepted).</div>
+    </label>
     <div id="edit-journal-error" style="color:#c00;font-size:0.8em;margin-bottom:10px;"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
       <button id="delete-journal-btn" class="btn" style="background:#ffe5e5;color:#b00000;">Delete Journal</button>
@@ -69,7 +73,10 @@
   }
   function renderJournalRow(j){
     let created = j.date;
-    if (j._id && j._id.length === 24) {
+    if (j.created_at) {
+      const dt = parseISOPermissive(j.created_at);
+      if (dt) created = dt.toLocaleString();
+    } else if (j._id && j._id.length === 24) {
       const ts = parseInt(j._id.substring(0,8), 16) * 1000;
       created = new Date(ts).toLocaleString();
     }
@@ -119,6 +126,16 @@
     editingJournalId = id;
     document.getElementById('edit-journal-name').value = j.name || '';
     document.getElementById('edit-journal-goal').value = j.goal || '';
+    // set created_at field using existing created_at or ObjectId derived
+    let initDate = null;
+    if (j.created_at) {
+      initDate = parseISOPermissive(j.created_at);
+    } else if (j._id && j._id.length === 24) {
+      const ts = parseInt(j._id.substring(0,8), 16) * 1000;
+      initDate = new Date(ts);
+    }
+    if (initDate) document.getElementById('edit-journal-created').value = toDatetimeLocalValue(initDate);
+    else document.getElementById('edit-journal-created').value = '';
     document.getElementById('edit-journal-error').textContent='';
     document.getElementById('edit-journal-modal').style.display='flex';
     if(del){ // immediate delete confirm
@@ -129,8 +146,18 @@
     if(!editingJournalId) return;
     const name = document.getElementById('edit-journal-name').value.trim();
     const goal = document.getElementById('edit-journal-goal').value.trim();
+    const createdLocal = document.getElementById('edit-journal-created').value; // 'YYYY-MM-DDTHH:mm'
     if(!name){ document.getElementById('edit-journal-error').textContent='Name required.'; return; }
-    const res = await fetch(`/api/journal/${editingJournalId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, goal }) });
+    let created_at = undefined;
+    if (createdLocal) {
+      // Treat input as local time; convert to ISO string without seconds to keep compact, append 'Z' only if treating as UTC
+      const dt = new Date(createdLocal);
+      // Send as ISO without timezone if local; backend will append Z if no tz present
+      created_at = dt.toISOString().replace(/\..+/, 'Z');
+    }
+    const payload = { name, goal };
+    if (created_at) payload.created_at = created_at;
+    const res = await fetch(`/api/journal/${editingJournalId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     if(!res.ok){ document.getElementById('edit-journal-error').textContent='Update failed.'; return; }
     closeEditModal();
     loadJournals();
@@ -168,5 +195,21 @@
   };
   document.getElementById('logout-btn').onclick = async () => { await fetch('/api/logout', { method:'POST' }); window.location.href = '/login'; };
   loadJournals();
+
+  // ---- date helpers ----
+  function parseISOPermissive(s){
+    if(!s) return null;
+    try{
+      // Accept 'YYYY-MM-DDTHH:mm', 'YYYY-MM-DDTHH:mm:ss', with or without Z/offset
+      const d = new Date(s);
+      if(isNaN(d.getTime())) return null;
+      return d;
+    }catch{ return null; }
+  }
+  function pad(n){ return (n<10?'0':'')+n; }
+  function toDatetimeLocalValue(d){
+    // format as 'YYYY-MM-DDTHH:mm' for input[type=datetime-local]
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes());
+  }
 </script>
 {% endblock %}
