@@ -394,29 +394,21 @@ async def coach_breakdown(request: Request, payload: dict = Body(...)):
     # Load existing plan and completed titles
     existing_plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
     completed_titles = []
-    existing_steps = []
+    regiment_steps = []
     if existing_plan:
         completed_titles = [t.strip().lower() for t in existing_plan.get("completed_titles", []) if isinstance(t, str)]
-        existing_steps = existing_plan.get("steps", []) or []
-    existing_steps = _normalize_steps(existing_steps)
-    # Request one new step avoiding previously completed and current step titles
-    avoid = completed_titles + [ (s.get("title") or "").strip().lower() for s in existing_steps ]
-    new_steps = await get_goal_breakdown(goal, avoid_titles=avoid, desired_count=1)
-    for st in new_steps:
-        tnorm = (st.get("title") or "").strip().lower()
-        if tnorm and not any((s.get("title") or "").strip().lower() == tnorm for s in existing_steps):
-            existing_steps.append(st)
-    steps = _normalize_steps(existing_steps)
-    update_doc = {"steps": steps, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}
+        regiment_steps = existing_plan.get("steps", []) or []
+    regiment_steps = _normalize_steps(regiment_steps)
+    # Generate a fresh set of suggestions (replace any previous generated list)
+    avoid = completed_titles + [ (s.get("title") or "").strip().lower() for s in regiment_steps ]
+    suggestions = await get_goal_breakdown(goal, avoid_titles=avoid, desired_count=6)
+    # Save suggestions under 'generated' without altering regiment steps
+    update_doc = {"generated": suggestions, "updated_at": datetime.utcnow().isoformat()+"Z", "goal_snapshot": goal}
     if completed_titles:
         update_doc["completed_titles"] = completed_titles
-    await plan_collection.update_one(
-        {"journal_id": journal_id, "user_id": user_id},
-        {"$set": update_doc},
-        upsert=True,
-    )
+    await plan_collection.update_one({"journal_id": journal_id, "user_id": user_id}, {"$set": update_doc}, upsert=True)
     latest_plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
-    return {"steps": steps, "completed_titles": completed_titles, "completed_records": (latest_plan or {}).get("completed_records", [])}
+    return {"generated": suggestions, "steps": regiment_steps, "completed_titles": completed_titles, "completed_records": (latest_plan or {}).get("completed_records", [])}
 
 # ---- Helper: normalize plan steps count/order ----
 def _normalize_steps(steps):
@@ -443,13 +435,49 @@ async def coach_get_plan(journal_id: str, request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated")
     doc = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
     if not doc:
-        return {"steps": [], "completed_titles": [], "completed_records": []}
+        return {"steps": [], "generated": [], "completed_titles": [], "completed_records": []}
     raw_steps = doc.get("steps", [])
     steps = _normalize_steps(raw_steps)
     if raw_steps != steps:
         await plan_collection.update_one({"_id": doc['_id']}, {"$set": {"steps": steps}})
     doc["_id"] = str(doc["_id"])
-    return {"steps": steps, "completed_titles": doc.get("completed_titles", []), "completed_records": doc.get("completed_records", [])}
+    return {"steps": steps, "generated": doc.get("generated", []), "completed_titles": doc.get("completed_titles", []), "completed_records": doc.get("completed_records", [])}
+
+@app.post("/api/coach/plan/{journal_id}/add")
+async def add_generated_step(journal_id: str, payload: dict = Body(...), request: Request = None):
+    """Add a generated suggestion to the user's regiment (steps) and remove it from generated list."""
+    user_id = request.cookies.get("user_id") if request else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    step_id = payload.get("step_id")
+    if not step_id:
+        raise HTTPException(status_code=400, detail="step_id required")
+    plan = await plan_collection.find_one({"journal_id": journal_id, "user_id": user_id})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    generated = plan.get("generated", []) or []
+    steps = plan.get("steps", []) or []
+    # find and remove from generated
+    picked = None
+    remain = []
+    for s in generated:
+        if s.get("id") == step_id and picked is None:
+            picked = s
+        else:
+            remain.append(s)
+    if not picked:
+        raise HTTPException(status_code=404, detail="Generated step not found")
+    # ensure unique id/title in steps
+    existing_titles = set((x.get("title") or "").strip().lower() for x in steps)
+    title = (picked.get("title") or "").strip()
+    if title and title.lower() in existing_titles:
+        # if duplicate title, tweak id/title minimally
+        picked["title"] = f"{title} (add)"
+        picked["id"] = f"{picked.get('id','step')}-add"
+    steps.append(picked)
+    steps = _normalize_steps(steps)
+    await plan_collection.update_one({"_id": plan["_id"]}, {"$set": {"steps": steps, "generated": remain}})
+    return {"msg": "Added", "steps": steps, "generated": remain}
 
 @app.post("/api/coach/plan/{journal_id}/toggle")
 async def toggle_step_completion(journal_id: str, payload: dict = Body(...), request: Request = None):

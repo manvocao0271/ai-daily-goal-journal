@@ -30,15 +30,22 @@
   </div>
   <div id="coach-suggestion" style="display:none;margin-top:12px;padding:12px;border:1px solid #cce;border-radius:6px;background:#f3f8ff;white-space:pre-wrap;font-size:0.9em;"></div>
   <div style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px;">
-    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan (8 Steps)</h3>
+    <h3 style="margin:0 0 8px;font-size:1.05em;">Goal Plan (Optional)</h3>
     <div id="plan-controls" style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <button class="btn" id="generate-plan-btn">Generate / Refresh Plan</button>
+      <button class="btn" id="generate-plan-btn">Generate / Refresh Ideas</button>
     </div>
     <div id="completed-steps" style="margin:0 0 12px 0;display:none;">
       <div style="font-weight:600;margin-bottom:6px;">Completed Steps</div>
       <ul id="completed-list" style="margin:0;padding-left:18px;font-size:0.9em;color:#444;"></ul>
     </div>
-    <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;"></ol>
+    <div id="generated-box" style="margin:0 0 14px 0;display:none;">
+      <div style="font-weight:600;margin-bottom:6px;">Generated Ideas</div>
+      <ol id="generated-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;"></ol>
+    </div>
+    <div id="regiment-box" style="margin:0 0 6px 0;">
+      <div style="font-weight:600;margin-bottom:6px;">Your Regiment</div>
+      <ol id="plan-steps" style="padding-left:20px;margin:0;display:block;list-style:decimal;"></ol>
+    </div>
   </div>
 </div>
 <!-- Edit Entry Modal -->
@@ -259,7 +266,39 @@
     if(!res.ok){ list.innerHTML='<li><em>Failed to load plan.</em></li>'; return; }
     const data = await res.json();
     renderCompleted(data.completed_records||[], data.completed_titles||[]);
+    renderGenerated(data.generated||[]);
     renderPlan(data.steps||[]);
+  }
+  function renderGenerated(steps){
+    const box = document.getElementById('generated-box');
+    const list = document.getElementById('generated-steps');
+    if(!steps || !steps.length){ box.style.display='none'; list.innerHTML=''; return; }
+    box.style.display='block';
+    list.innerHTML = steps.map(st=>{
+      return `<li style='margin-bottom:10px;'>
+        <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start;'>
+          <div style='flex:1;'>
+            <strong>${escapeHtml(st.title)}</strong><br>
+            <span style='color:#444;'>${escapeHtml(st.description)}</span>
+          </div>
+          <div style='min-width:120px;text-align:right;'>
+            <button class='btn' data-add-id='${st.id}'>Add</button>
+          </div>
+        </div>
+      </li>`;
+    }).join('');
+    list.querySelectorAll('[data-add-id]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.getAttribute('data-add-id');
+        btn.disabled = true; btn.textContent = 'Adding...';
+        try {
+          const res = await fetch(`/api/coach/plan/${JOURNAL_ID}/add`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ step_id: id }) });
+          if(res.ok){ await loadPlan(); }
+          else { alert('Failed to add'); }
+        } catch(e){ alert('Network error'); }
+        btn.disabled = false; btn.textContent = 'Add';
+      });
+    });
   }
   function renderCompleted(records, titles){
     const box = document.getElementById('completed-steps');
@@ -274,11 +313,10 @@
     if(!steps.length){ list.innerHTML = '<li><em>No plan yet. Generate one.</em></li>'; return; }
     list.innerHTML = steps.map(st=>{
       const checked = st.completed? 'checked' : '';
-      return `<li style='margin-bottom:12px;display:flex;align-items:flex-start;gap:12px;justify-content:space-between;'>
+  return `<li style='margin-bottom:12px;display:flex;align-items:flex-start;gap:12px;justify-content:space-between;'>
         <div style='flex:1;'>
           <strong>${escapeHtml(st.title)}</strong><br>
           <span style='color:#444;'>${escapeHtml(st.description)}</span>
-          ${st.expected_outcome?`<div style='font-size:0.7em;color:#666;margin-top:2px;'>Outcome: ${escapeHtml(st.expected_outcome)}</div>`:''}
         </div>
         <div style='min-width:40px;text-align:center;'>
           <input type='checkbox' class='plan-step-check' data-step-id='${st.id}' ${checked} />
@@ -298,10 +336,10 @@
     btn.disabled=true; btn.textContent='Generating...';
     try {
       const res = await fetch('/api/coach/breakdown',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ journal_id: JOURNAL_ID })});
-  if(res.ok){ const data = await res.json(); renderCompleted(data.completed_records||[], data.completed_titles||[]); renderPlan(data.steps||[]); }
+      if(res.ok){ const data = await res.json(); renderCompleted(data.completed_records||[], data.completed_titles||[]); renderGenerated(data.generated||[]); renderPlan(data.steps||[]); }
       else { const txt = await res.text(); alert('Failed to generate plan\n'+txt.slice(0,300)); }
     } catch(e){ alert('Network error: '+e); }
-    btn.disabled=false; btn.textContent='Generate / Refresh Plan';
+    btn.disabled=false; btn.textContent='Generate / Refresh Ideas';
   };
   loadPlan();
 </script>
